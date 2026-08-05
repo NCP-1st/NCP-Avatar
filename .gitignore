@@ -46,3 +46,6 @@ desktop.ini
 # --- Logs ---
 logs/
 *.log
+
+# --- Docs (local only) ---
+*.docx
