@@ -11,9 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database.conn.db import get_db
-from database.models import AvatarVideo, DiarySession, DiaryVersion
+from database.models import AvatarVideo, DiaryInput, DiarySession, DiaryVersion
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
@@ -34,6 +35,27 @@ class CalendarDayEntry(BaseModel):
     longitude: float | None = Field(None, description="Primary longitude")
     created_at: datetime | None = Field(None, description="Session created timestamp")
     updated_at: datetime | None = Field(None, description="Session updated timestamp")
+    diary_inputs: list["CalendarDiaryInput"] = Field(default_factory=list)
+    versions: list["CalendarVersionPreview"] = Field(default_factory=list)
+
+
+class CalendarDiaryInput(BaseModel):
+    input_id: str
+    type: str
+    storage_url: str
+    transcript: str | None = None
+    captured_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class CalendarVersionPreview(BaseModel):
+    version_id: str
+    title: str
+    summary: str
+    script: str
+    emotion_tags: list[str] | None = None
+    approved: bool
+    created_at: datetime | None = None
 
 
 class CalendarSummary(BaseModel):
@@ -50,6 +72,9 @@ class CalendarResponse(BaseModel):
     end_date: date
     summary: CalendarSummary
     entries: list[CalendarDayEntry]
+
+
+CalendarDayEntry.model_rebuild()
 
 
 def _build_ranked_version_subquery() -> Any:
@@ -126,6 +151,47 @@ def _build_proximity_clause(
     )
 
 
+def _build_diary_inputs(inputs: list[DiaryInput]) -> list[CalendarDiaryInput]:
+    sorted_inputs = sorted(
+        inputs,
+        key=lambda item: (
+            item.captured_at or item.created_at or datetime.min,
+            item.created_at or datetime.min,
+        ),
+    )
+    return [
+        CalendarDiaryInput(
+            input_id=item.input_id,
+            type=item.type,
+            storage_url=item.storage_url,
+            transcript=item.transcript,
+            captured_at=item.captured_at,
+            created_at=item.created_at,
+        )
+        for item in sorted_inputs
+    ]
+
+
+def _build_versions(versions: list[DiaryVersion]) -> list[CalendarVersionPreview]:
+    sorted_versions = sorted(
+        versions,
+        key=lambda item: (item.created_at or datetime.min),
+        reverse=True,
+    )
+    return [
+        CalendarVersionPreview(
+            version_id=version.version_id,
+            title=version.title,
+            summary=version.summary,
+            script=version.script,
+            emotion_tags=_parse_emotion_tags(version.emotion_tags),
+            approved=version.approved,
+            created_at=version.created_at,
+        )
+        for version in sorted_versions
+    ]
+
+
 @router.get("", response_model=CalendarResponse)
 async def get_calendar(
     user_id: str = Query(..., description="User ID"),
@@ -171,6 +237,10 @@ async def get_calendar(
             DiarySession.user_id == user_id,
             DiarySession.diary_date >= start_date,
             DiarySession.diary_date <= end_date,
+        )
+        .options(
+            selectinload(DiarySession.inputs),
+            selectinload(DiarySession.versions),
         )
         .order_by(DiarySession.diary_date.asc(), DiarySession.created_at.asc())
     )
@@ -236,6 +306,8 @@ async def get_calendar(
                 longitude=float(session.longitude) if session.longitude is not None else None,
                 created_at=session.created_at,
                 updated_at=session.updated_at,
+                diary_inputs=_build_diary_inputs(session.inputs),
+                versions=_build_versions(session.versions),
             )
         )
 

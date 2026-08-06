@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from backend.main import app
 from database.conn.db import get_db
-from database.models import Base, User, DiarySession, DiaryVersion, AvatarVideo
+from database.models import Base, User, DiaryInput, DiarySession, DiaryVersion, AvatarVideo
 from decimal import Decimal
 
 
@@ -82,6 +82,22 @@ async def run_integration_tests():
             storage_url="https://s3.ncp.com/video1.mp4",
         )
         session.add(video1)
+
+        image_input = DiaryInput(
+            input_id="input_1",
+            session_id="session_1",
+            type="image",
+            storage_url="https://s3.ncp.com/input/image1.png",
+            transcript="서울 시청 앞 풍경 사진",
+        )
+        text_input = DiaryInput(
+            input_id="input_2",
+            session_id="session_1",
+            type="text",
+            storage_url="https://s3.ncp.com/input/text1.txt",
+            transcript="오늘은 정말 화창했다.",
+        )
+        session.add_all([image_input, text_input])
         await session.commit()
         print("Mock data seeded.")
 
@@ -126,6 +142,9 @@ async def run_integration_tests():
         assert entry["video_status"] == "completed"
         assert entry["video_url"] == "https://s3.ncp.com/video1.mp4"
         assert entry["location_name"] == "Seoul Hall"
+        assert len(entry["diary_inputs"]) == 2
+        assert entry["diary_inputs"][0]["type"] == "image"
+        assert entry["versions"][0]["version_id"] == "version_1"
         print("Calendar response entry:", entry)
 
         # 3. Test calendar query with emotion filter
