@@ -33,9 +33,23 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
     }
     env = {**file_values, **os.environ}
 
+    # Speech Recognition과 Voice가 같은 NCP Application을 사용한다.
+    # 공통 키를 우선 사용하고 기존 서비스별 환경변수도 호환한다.
+    clova_client_id = env.get(
+        "CLOVA_API_CLIENT_ID",
+        env.get("CLOVA_VOICE_CLIENT_ID", env.get("CLOVA_SPEECH_CLIENT_ID", "")),
+    )
+    clova_client_secret = env.get(
+        "CLOVA_API_CLIENT_SECRET",
+        env.get(
+            "CLOVA_VOICE_CLIENT_SECRET",
+            env.get("CLOVA_SPEECH_SECRET_KEY", ""),
+        ),
+    )
+
     return {
         "llm": {
-            "provider": "clova_native",
+            "provider": "langchain_naver",
             "api_key": env.get("CLOVA_STUDIO_API_KEY", ""),
             "base_url": env.get(
                 "CLOVA_STUDIO_BASE_URL",
@@ -51,17 +65,27 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
             ),
             "max_tokens": int(env.get("CLOVA_STUDIO_MAX_TOKENS", "1024")),
         },
+        "clova_api": {
+            "client_id": clova_client_id,
+            "client_secret": clova_client_secret,
+        },
         "speech": {
-            "invoke_url": env.get("CLOVA_SPEECH_INVOKE_URL", ""),
-            "secret_key": env.get("CLOVA_SPEECH_SECRET_KEY", ""),
+            "api_url": env.get(
+                "CLOVA_SPEECH_API_URL",
+                env.get(
+                    "CLOVA_SPEECH_APi_URL",
+                    "https://naveropenapi.apigw.ntruss.com/recog/v1/stt",
+                ),
+            ),
         },
         "voice": {
             "api_url": env.get(
                 "CLOVA_VOICE_API_URL",
                 "https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts",
             ),
-            "client_id": env.get("CLOVA_VOICE_CLIENT_ID", ""),
-            "client_secret": env.get("CLOVA_VOICE_CLIENT_SECRET", ""),
+            "speaker": env.get("CLOVA_VOICE_SPEAKER", "nara"),
+            "format": env.get("CLOVA_VOICE_FORMAT", "mp3"),
+            "timeout_s": float(env.get("CLOVA_VOICE_TIMEOUT_SECONDS", "30")),
         },
         "object_storage": {
             "access_key": env.get("NCP_ACCESS_KEY", ""),

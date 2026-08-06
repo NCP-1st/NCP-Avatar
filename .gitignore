@@ -47,5 +47,9 @@ desktop.ini
 logs/
 *.log
 
+# --- Generated media (local tests) ---
+/backend/services/voice/output/
+/backend/services/video/output/
+
 # --- Docs (local only) ---
 *.docx

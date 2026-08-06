@@ -1,6 +1,5 @@
-"""Provider-neutral LLM interface and structured result models."""
+"""LangChain LLM 서비스의 요청/응답 스키마."""
 
-from abc import ABC, abstractmethod
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -35,13 +34,3 @@ class LLMResponse(BaseModel):
     finish_reason: str | None = None
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     usage: TokenUsage = Field(default_factory=TokenUsage)
-
-
-class LLMClient(ABC):
-    @abstractmethod
-    async def generate(self, request: LLMRequest) -> LLMResponse:
-        """Generate one structured response from a provider."""
-
-    @abstractmethod
-    async def close(self) -> None:
-        """Release resources owned by this client instance."""
