@@ -148,6 +148,54 @@ class DiaryVersion(Base):
     video: Mapped[Optional["AvatarVideo"]] = relationship(
         "AvatarVideo", back_populates="version", cascade="all, delete-orphan"
     )
+    narration_script: Mapped[Optional["NarrationScript"]] = relationship(
+        "NarrationScript",
+        back_populates="diary_version",
+        cascade="all, delete-orphan",
+        single_parent=True,
+        uselist=False,
+    )
+
+
+class NarrationScript(Base):
+    __tablename__ = "narration_scripts"
+    __table_args__ = (
+        Index(
+            "ix_narration_scripts_version_status_created",
+            "diary_version_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    script_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    diary_version_id: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("diary_versions.version_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    narration_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    emotion: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    tone: Mapped[str] = mapped_column(String(50), default="따뜻한 회상")
+    target_duration_seconds: Mapped[int] = mapped_column(Integer, default=30)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    llm_model: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    voice_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    audio_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    audio_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    audio_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    audio_mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    diary_version: Mapped["DiaryVersion"] = relationship(
+        "DiaryVersion", back_populates="narration_script"
+    )
+
 
 class AvatarVideo(Base):
     __tablename__ = "avatar_videos"

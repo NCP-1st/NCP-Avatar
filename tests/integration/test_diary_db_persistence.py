@@ -1,13 +1,15 @@
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import selectinload
 from sqlalchemy.pool import StaticPool
 
 from backend.agents.diary_chatbot.models import DiaryVersion
 from backend.api.schemas import InputType, NormalizedInputItem, ProcessingStatus
 from backend.repositories.sqlalchemy import SQLAlchemyDiaryRepository
-from database.models import Base, DiaryInput, DiarySession
+from database.models import Base, DiaryInput, DiarySession, NarrationScript
 from database.models import DiaryVersion as ORMDiaryVersion
 
 
@@ -67,5 +69,32 @@ async def test_diary_workflow_is_persisted() -> None:
         assert restored_version.content == stored_version.content
         assert restored_version.paragraphs == stored_version.paragraphs
         assert restored_version.evidence_input_ids == ["text-db-test"]
+
+        db.add(
+            NarrationScript(
+                script_id="script-db-test",
+                diary_version_id="version-db-test",
+                narration_text="오늘은 친구와 성수동을 걸었다.",
+                emotion="즐거움",
+                llm_model="HCX-007",
+                voice_id="nara",
+            )
+        )
+        await db.commit()
+
+        version_with_script = (
+            await db.scalars(
+                select(ORMDiaryVersion)
+                .where(ORMDiaryVersion.version_id == "version-db-test")
+                .options(selectinload(ORMDiaryVersion.narration_script))
+            )
+        ).one()
+        assert version_with_script.narration_script is not None
+        assert version_with_script.narration_script.status == "pending"
+        assert version_with_script.narration_script.target_duration_seconds == 30
+
+        await db.delete(version_with_script)
+        await db.commit()
+        assert await db.get(NarrationScript, "script-db-test") is None
 
     await engine.dispose()
