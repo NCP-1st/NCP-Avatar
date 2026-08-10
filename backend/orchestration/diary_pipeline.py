@@ -13,7 +13,7 @@ from backend.api.schemas import (
 )
 from backend.services.speech import SpeechToTextAdapter
 from backend.services.storage import StorageAdapter
-from backend.testing.repository import InMemoryRepository
+from backend.repositories import DiaryRepository
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/bmp"}
@@ -21,7 +21,7 @@ SUPPORTED_AUDIO_TYPES = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/x-m4a", 
 
 
 class DiaryPipeline:
-    def __init__(self, repository: InMemoryRepository, storage: StorageAdapter,
+    def __init__(self, repository: DiaryRepository, storage: StorageAdapter,
                  stt: SpeechToTextAdapter) -> None:
         self.repo, self.storage, self.stt = repository, storage, stt
 
@@ -57,7 +57,8 @@ class DiaryPipeline:
             return NormalizedInputItem(input_id=request.input_id, type=request.type, storage_url=stored.url,
                                        content_hash=stored.content_hash, size_bytes=stored.size_bytes,
                                        mime_type=stored.mime_type, transcript=transcript,
-                                       captured_at=request.captured_at, status=ProcessingStatus.OK, provider_meta=meta)
+                                       captured_at=request.captured_at, status=ProcessingStatus.OK,
+                                       transcript_confirmed=False, provider_meta=meta)
         except Exception as exc:
             return NormalizedInputItem(input_id=request.input_id, type=request.type,
                                        storage_url=stored.url if stored else None,

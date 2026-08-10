@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class InputType(str, Enum):
@@ -59,6 +59,7 @@ class NormalizedInputItem(BaseModel):
     size_bytes: int | None = None
     mime_type: str | None = None
     transcript: str | None = None
+    transcript_confirmed: bool = False
     captured_at: datetime | None = None
     status: ProcessingStatus
     error_code: str | None = None
@@ -70,3 +71,71 @@ class PreprocessResult(BaseModel):
     session_id: str
     items: list[NormalizedInputItem]
     error_count: int
+
+
+class ConfirmTranscriptRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("transcript")
+    @classmethod
+    def normalize_transcript(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("transcript must not be blank")
+        return normalized
+
+
+class ConfirmTranscriptResponse(BaseModel):
+    session_id: str
+    input_id: str
+    transcript: str
+    transcript_confirmed: bool
+
+
+class DiaryChatRequest(BaseModel):
+    message: str = Field(default="", max_length=2000)
+    input_ids: list[str] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_chat_payload(self) -> "DiaryChatRequest":
+        if not self.message.strip() and not self.input_ids:
+            raise ValueError("message or input_ids is required")
+        return self
+
+
+class DiaryChatResponse(BaseModel):
+    session_id: str
+    stage: str
+    questions_asked_count: int
+    turn: dict
+    review_summary: str | None = None
+
+
+class DiaryReviewRequest(BaseModel):
+    action: str
+
+    @model_validator(mode="after")
+    def validate_action(self) -> "DiaryReviewRequest":
+        allowed = {"summary_yes", "summary_no", "more_yes", "more_no", "skip_current"}
+        if self.action not in allowed:
+            raise ValueError("unsupported review action")
+        return self
+
+
+class DiaryReviewResponse(BaseModel):
+    session_id: str
+    stage: str
+    review_summary: str | None = None
+    turn: dict | None = None
+
+
+class GenerationJobResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class GenerationJobStatus(BaseModel):
+    job_id: str
+    status: str
+    result: dict | None = None
+    error_code: str | None = None

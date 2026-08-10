@@ -87,5 +87,7 @@ def get_settings() -> Settings:
     return Settings(
         adapter_mode=mode,
         clova_speech_client_id=config["speech"]["client_id"],
-        clova_speech_client_secret=config["speech"]["client_secret"],
+        clova_speech_client_secret=(
+            config["speech"]["client_secret"] or config["speech"]["secret_key"]
+        ),
     )

@@ -1,12 +1,13 @@
 from backend.api.schemas import DiarySession, NormalizedInputItem
 
 
-class InMemoryRepository:
-    """Development-only persistence boundary; replace with a MySQL implementation."""
+class InMemoryDiaryRepository:
+    """Local development repository; replace with the MySQL implementation."""
 
     def __init__(self) -> None:
         self.sessions: dict[str, DiarySession] = {}
         self.inputs: dict[str, list[NormalizedInputItem]] = {}
 
     def clear(self) -> None:
-        self.__init__()
+        self.sessions.clear()
+        self.inputs.clear()

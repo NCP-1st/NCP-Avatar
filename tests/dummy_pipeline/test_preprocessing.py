@@ -31,6 +31,19 @@ def test_health_and_multimodal_preprocessing() -> None:
     assert response.status_code == 200
     assert response.json()["error_count"] == 0
     assert all(item["status"] == "ok" for item in response.json()["items"])
+    audio_item = next(item for item in response.json()["items"] if item["type"] == "audio")
+    assert audio_item["transcript"] == "[임시 음성 텍스트]"
+    assert audio_item["transcript_confirmed"] is False
+
+    confirmed = client.put(
+        f"/diary/{session_id}/inputs/audio-1/transcript",
+        json={"transcript": "친구와 공원에서 산책해서 즐거웠어"},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["transcript_confirmed"] is True
+    stored_audio = next(item for item in repository.inputs[session_id] if item.input_id == "audio-1")
+    assert stored_audio.transcript == "친구와 공원에서 산책해서 즐거웠어"
+    assert stored_audio.transcript_confirmed is True
 
 
 def test_failed_item_can_be_retried_individually() -> None:
@@ -53,6 +66,34 @@ def test_failed_item_can_be_retried_individually() -> None:
     assert len(repository.inputs[session_id]) == 2
 
 
+def test_unconfirmed_audio_is_blocked_before_chat_agent_call() -> None:
+    session_id = create_session()
+    audio = base64.b64encode(b"dummy-audio").decode()
+    uploaded = client.post(f"/diary/{session_id}/inputs", json={"items": [{
+        "input_id": "audio-unconfirmed",
+        "type": "audio",
+        "file_base64": audio,
+        "mime_type": "audio/wav",
+    }]})
+    assert uploaded.status_code == 200
+
+    response = client.post(
+        f"/diary/{session_id}/chat",
+        json={"message": "", "input_ids": ["audio-unconfirmed"]},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "음성 메모의 인식 결과를 먼저 확인해 주세요."
+
+
 def test_openapi_exposes_only_current_scope() -> None:
     paths = set(client.get("/openapi.json").json()["paths"])
-    assert paths == {"/health", "/diary/sessions", "/diary/{session_id}/inputs"}
+    assert paths == {
+        "/health",
+        "/diary/sessions",
+        "/diary/{session_id}/inputs",
+        "/diary/{session_id}/inputs/{input_id}/transcript",
+        "/diary/{session_id}/chat",
+        "/diary/{session_id}/generate",
+        "/diary/{session_id}/review",
+        "/diary/jobs/{job_id}",
+    }

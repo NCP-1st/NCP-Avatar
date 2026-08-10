@@ -10,4 +10,9 @@ class MultimodalChatAgent(ABC):
 
 class DiaryGenerationAgent(ABC):
     @abstractmethod
-    async def generate(self, turns: list[ChatbotTurnResult]) -> DiaryDraft: ...
+    async def generate(
+        self,
+        turns: list[ChatbotTurnResult],
+        *,
+        source_texts: dict[str, str] | None = None,
+    ) -> DiaryDraft: ...
