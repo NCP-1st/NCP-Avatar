@@ -132,7 +132,7 @@ class DiaryDraft(BaseModel):
     title: str
     paragraphs: list[str] = Field(min_length=3, max_length=7)
     summary: str
-    narration_script: str
+    content: str
     emotion_tags: list[str]
     evidence_input_ids: list[str]
     model: str = "HCX-007"

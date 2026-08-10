@@ -136,7 +136,8 @@
 | DiarySession | session_id, user_id, diary_date, status | 하루 입력·생성 작업 단위 |
 | DiaryChat | user_id, session_id, chat, datetime | 일기 챗봇 채팅 이력 |
 | DiaryInput | input_id, type, storage_url, transcript, captured_at | 원본 + 변환 결과 |
-| DiaryVersion | version_id, title, summary, script, emotion_tags, approved | AI 초안·사용자 수정 버전 |
+| DiaryVersion | version_id, title, summary, content, emotion_tags, approved | AI 초안·사용자 수정 버전 |
+| NarrationScript | script_id, diary_version_id, narration_text, tone, target_duration_seconds, status, audio_url | 일기 승인 후 대본·음성 자동 생성 결과 |
 | AvatarVideo | video_id, version_id, status, storage_url, duration | 렌더링 상태·결과 |
 | LocationMessage | message_id, latitude, longitude, radius, expires_at, audio_url | 위치 메시지·접근 조건 |
 | CounselSession | counsel_id, user_id, referenced_diary_ids, safety_level | 상담 대화·참조 기록 |

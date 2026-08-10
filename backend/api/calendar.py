@@ -25,7 +25,7 @@ class CalendarDayEntry(BaseModel):
     status: str = Field(..., description="Session status")
     title: str | None = Field(None, description="Selected diary version title")
     summary: str | None = Field(None, description="Selected diary version summary")
-    script: str | None = Field(None, description="Selected diary version narration script")
+    script: str | None = Field(None, description="Selected diary version content")
     emotion_tags: list[str] | None = Field(None, description="Selected diary version emotion tags")
     approved: bool | None = Field(None, description="Whether the selected version is approved")
     video_status: str | None = Field(None, description="Avatar video render status")
@@ -84,7 +84,7 @@ def _build_ranked_version_subquery() -> Any:
             DiaryVersion.session_id,
             DiaryVersion.title,
             DiaryVersion.summary,
-            DiaryVersion.script,
+            DiaryVersion.content.label("script"),
             DiaryVersion.emotion_tags,
             DiaryVersion.approved,
             DiaryVersion.created_at,
@@ -183,7 +183,7 @@ def _build_versions(versions: list[DiaryVersion]) -> list[CalendarVersionPreview
             version_id=version.version_id,
             title=version.title,
             summary=version.summary,
-            script=version.script,
+            script=version.content,
             emotion_tags=_parse_emotion_tags(version.emotion_tags),
             approved=version.approved,
             created_at=version.created_at,

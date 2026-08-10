@@ -222,7 +222,7 @@ class DiaryOrchestrator:
             raise PermissionError("rendering requires an approved diary version")
         if not self._voice or not self._avatar or not self._storage:
             raise NotImplementedError("render adapters are not fully configured")
-        audio = await self._voice.synthesize(version.narration_script, voice_id=voice_id)
+        audio = await self._voice.synthesize(version.content, voice_id=voice_id)
         video = await self._avatar.render(audio, version_id=version.version_id)
         audio_object = await self._storage.upload(
             audio, object_name=f"{version.version_id}.mp3", mime_type="audio/mpeg"
