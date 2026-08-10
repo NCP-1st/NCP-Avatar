@@ -4,9 +4,9 @@ from typing import Any
 from backend.agents.counsel_chatbot import ContextAgent, CounselorAgent
 from backend.agents.diary_chatbot import Hcx005MultimodalChatAgent, Hcx007DiaryGenerationAgent
 from backend.config import load_config
+from backend.orchestration.counsel_flow import CounselFlow
 from backend.orchestration.diary_orchestrator import DiaryOrchestrationState, DiaryOrchestrator
 from backend.orchestration.diary_pipeline import DiaryPipeline
-from backend.orchestration.counsel_flow import CounselFlow
 from backend.repositories import InMemoryConversationStore, InMemoryDiaryRepository
 from backend.services.knowledge import (
     InMemoryCounselKnowledge,
@@ -14,10 +14,6 @@ from backend.services.knowledge import (
 )
 from backend.services.speech.clova import ClovaSpeechToTextAdapter
 from backend.services.storage.inline import InlineDataUrlStorageAdapter
-
-repository = InMemoryDiaryRepository()
-
-
 def build_pipeline() -> DiaryPipeline:
     config = load_config()
     storage = InlineDataUrlStorageAdapter()
@@ -25,17 +21,21 @@ def build_pipeline() -> DiaryPipeline:
         config["speech"]["client_id"],
         config["speech"]["client_secret"] or config["speech"]["secret_key"],
     )
+    repository = InMemoryDiaryRepository()
     return DiaryPipeline(repository, storage, speech)
 
 
+# 상태 관리 딕셔너리 (메모리 유지)
 pipeline = build_pipeline()
+repository = pipeline.repo
+diary_states: dict[str, DiaryOrchestrationState] = {}
+generation_jobs: dict[str, dict[str, Any]] = {}
+generation_tasks: set[asyncio.Task[Any]] = set()
+
 diary_orchestrator = DiaryOrchestrator(
     chat_agent=Hcx005MultimodalChatAgent(load_config()),
     generation_agent=Hcx007DiaryGenerationAgent(load_config()),
 )
-diary_states: dict[str, DiaryOrchestrationState] = {}
-generation_jobs: dict[str, dict[str, Any]] = {}
-generation_tasks: set[asyncio.Task[Any]] = set()
 
 
 def get_pipeline() -> DiaryPipeline:
@@ -47,14 +47,9 @@ def get_diary_orchestrator() -> DiaryOrchestrator:
 
 
 # --- 상담 -----------------------------------------------------------------
-#
-# 스텁은 상태를 들고 있으므로 요청마다 새로 만들지 않는다. 대화 이력이 매번
-# 초기화되고 인덱스도 다시 만들어진다.
-#
-# 실제 구현이 준비되면 아래 네 개만 바꾼다. 에이전트·흐름 코드는 그대로다.
-counsel_store = InMemoryConversationStore()            # TODO: MySQL 저장소
-counsel_knowledge = InMemoryCounselKnowledge()         # TODO: 상담 가이드라인 KB
-counsel_ontology = InMemoryPersonalOntology()          # TODO: 개인 온톨로지
+counsel_store = InMemoryConversationStore()
+counsel_knowledge = InMemoryCounselKnowledge()
+counsel_ontology = InMemoryPersonalOntology()
 
 
 def get_counsel_flow() -> CounselFlow:

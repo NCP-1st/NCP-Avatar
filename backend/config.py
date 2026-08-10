@@ -47,7 +47,7 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
         },
         "db": {
             "host": env.get("DB_HOST", "localhost"),
-            "port": int(env.get("DB_PORT", "3306")),
+            "port": int(env.get("DB_PORT", "5432")),
             "dbname": env.get("DB_NAME", "mediary"),
             "user": env.get("DB_USER", ""),
             "password": env.get("DB_PASSWORD", ""),

@@ -46,7 +46,8 @@ class InMemoryPersonalOntology:
     """인물·장소 이름이 겹치는 관계를 돌려주는 스텁."""
 
     def __init__(self, facts: list[OntologyFact] | None = None) -> None:
-        self._facts = facts if facts is not None else _sample_facts()
+        # 개인 관계는 사용자의 실제 기록에서 주입된 사실만 사용한다.
+        self._facts = list(facts) if facts is not None else []
 
     async def related(
         self,
@@ -97,22 +98,3 @@ def _sample_snippets() -> list[KnowledgeSnippet]:
             source="안전 운영 지침 1.2",
         ),
     ]
-
-
-# def _sample_facts() -> list[OntologyFact]:
-#     return [
-#         OntologyFact(
-#             subject="팀장님",
-#             relation="피드백을 준 사람",
-#             object="발표 자료",
-#             observed=True,
-#             evidence_diary_ids=["d-1003"],
-#         ),
-#         OntologyFact(
-#             subject="지수",
-#             relation="이야기하면 마음이 가벼워지는 친구",
-#             object="사용자",
-#             observed=False,  # 기록에서 추론한 관계
-#             evidence_diary_ids=["d-1002"],
-#         ),
-#     ]

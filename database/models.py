@@ -72,7 +72,6 @@ class DiarySession(Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint("user_id", "diary_date", name="uq_user_date"),
         Index("ix_diary_sessions_user_status_date", "user_id", "status", "diary_date"),
     )
 
@@ -113,7 +112,7 @@ class DiaryInput(Base):
     input_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     session_id: Mapped[str] = mapped_column(String(50), ForeignKey("diary_sessions.session_id", ondelete="CASCADE"), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # image, voice, text
-    storage_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    storage_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Transcribed voice STT or OCR content
     captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -137,8 +136,11 @@ class DiaryVersion(Base):
     session_id: Mapped[str] = mapped_column(String(50), ForeignKey("diary_sessions.session_id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    script: Mapped[str] = mapped_column(Text, nullable=False)  # 30-sec narration script
-    emotion_tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # List of emotion tags
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    script: Mapped[str] = mapped_column(Text, nullable=False)
+    emotion_tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    paragraphs: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    evidence_input_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -147,7 +149,6 @@ class DiaryVersion(Base):
     video: Mapped[Optional["AvatarVideo"]] = relationship(
         "AvatarVideo", back_populates="version", cascade="all, delete-orphan"
     )
-
 
 class AvatarVideo(Base):
     __tablename__ = "avatar_videos"

@@ -1,10 +1,15 @@
 import base64
+import asyncio
 
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from backend.dependencies import pipeline, repository
 from backend.main import app
 from backend.services.speech import SpeechToTextAdapter
+from database.conn.db import get_db
+from database.models import Base
 
 
 class TestSpeechAdapter(SpeechToTextAdapter):
@@ -15,6 +20,30 @@ class TestSpeechAdapter(SpeechToTextAdapter):
 
 
 pipeline.stt = TestSpeechAdapter()
+
+test_engine = create_async_engine(
+    "sqlite+aiosqlite:///:memory:",
+    poolclass=StaticPool,
+)
+TestSessionLocal = async_sessionmaker(
+    test_engine, class_=AsyncSession, expire_on_commit=False
+)
+
+
+async def _create_test_schema() -> None:
+    async with test_engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+
+asyncio.run(_create_test_schema())
+
+
+async def override_get_db():
+    async with TestSessionLocal() as session:
+        yield session
+
+
+app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 
@@ -109,4 +138,7 @@ def test_openapi_exposes_only_current_scope() -> None:
         "/diary/jobs/{job_id}",
         "/",
         "/api/calendar",
+        "/api/counsel/chat",
+        "/api/maps/diaries",
+        "/api/script/ai_script",
     }

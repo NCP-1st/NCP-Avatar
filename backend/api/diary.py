@@ -2,7 +2,24 @@ import asyncio
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.schemas import (
+    AddInputsRequest,
+    ConfirmTranscriptRequest,
+    ConfirmTranscriptResponse,
+    CreateSessionRequest,
+    DiaryChatRequest,
+    DiaryChatResponse,
+    DiaryReviewRequest,
+    DiaryReviewResponse,
+    DiarySession,
+    GenerationJobResponse,
+    GenerationJobStatus,
+    InputType,
+    PreprocessResult,
+    ProcessingStatus,
+)
 from backend.dependencies import (
     diary_states,
     generation_jobs,
@@ -12,22 +29,8 @@ from backend.dependencies import (
 )
 from backend.orchestration.diary_orchestrator import DiaryOrchestrator
 from backend.orchestration.diary_pipeline import DiaryPipeline
-from backend.api.schemas import (
-    AddInputsRequest,
-    CreateSessionRequest,
-    ConfirmTranscriptRequest,
-    ConfirmTranscriptResponse,
-    DiarySession,
-    DiaryChatRequest,
-    DiaryChatResponse,
-    DiaryReviewRequest,
-    DiaryReviewResponse,
-    GenerationJobResponse,
-    GenerationJobStatus,
-    PreprocessResult,
-    InputType,
-    ProcessingStatus,
-)
+from backend.repositories.sqlalchemy import SQLAlchemyDiaryRepository
+from database.conn.db import AsyncSessionLocal, get_db
 
 router = APIRouter(prefix="/diary", tags=["diary"])
 
@@ -38,28 +41,70 @@ def require_session(session_id: str, pipeline: DiaryPipeline) -> None:
 
 
 @router.post("/sessions", response_model=DiarySession, status_code=status.HTTP_201_CREATED)
-def create_session(request: CreateSessionRequest, pipeline: DiaryPipeline = Depends(get_pipeline)) -> DiarySession:
+async def create_session(
+    request: CreateSessionRequest,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    db: AsyncSession = Depends(get_db),
+) -> DiarySession:
     session = pipeline.create_session(request.user_id, request.diary_date)
     diary_states.pop(session.session_id, None)
+    try:
+        await SQLAlchemyDiaryRepository(db).save_session(
+            user_id=request.user_id,
+            diary_date=request.diary_date,
+            session_id=session.session_id,
+        )
+    except Exception:
+        pipeline.repo.sessions.pop(session.session_id, None)
+        await db.rollback()
+        raise
     return session
 
 
+async def _run_generation_job(
+    job_id: str,
+    state,
+    orchestrator: DiaryOrchestrator,
+) -> None:
+    generation_jobs[job_id]["status"] = "processing"
+    try:
+        version = await orchestrator.request_generation(state)
+        async with AsyncSessionLocal() as db:
+            try:
+                await SQLAlchemyDiaryRepository(db).save_version(version)
+            except Exception:
+                await db.rollback()
+                raise
+        generation_jobs[job_id].update(status="completed", result=version.model_dump())
+    except Exception as exc:
+        generation_jobs[job_id].update(status="failed", error_code=type(exc).__name__)
+
+
 @router.post("/{session_id}/inputs", response_model=PreprocessResult)
-async def add_inputs(session_id: str, request: AddInputsRequest,
-                     pipeline: DiaryPipeline = Depends(get_pipeline)) -> PreprocessResult:
+async def add_inputs(
+    session_id: str,
+    request: AddInputsRequest,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    db: AsyncSession = Depends(get_db),
+) -> PreprocessResult:
     require_session(session_id, pipeline)
-    return await pipeline.preprocess(session_id, request.items)
+    result = await pipeline.preprocess(session_id, request.items)
+    await SQLAlchemyDiaryRepository(db).save_inputs(
+        session_id=session_id, items=result.items
+    )
+    return result
 
 
 @router.put(
     "/{session_id}/inputs/{input_id}/transcript",
     response_model=ConfirmTranscriptResponse,
 )
-def confirm_audio_transcript(
+async def confirm_audio_transcript(
     session_id: str,
     input_id: str,
     request: ConfirmTranscriptRequest,
     pipeline: DiaryPipeline = Depends(get_pipeline),
+    db: AsyncSession = Depends(get_db),
 ) -> ConfirmTranscriptResponse:
     require_session(session_id, pipeline)
     item = next(
@@ -76,6 +121,9 @@ def confirm_audio_transcript(
         raise HTTPException(status_code=409, detail="확정할 수 있는 음성 입력이 아닙니다.")
     item.transcript = request.transcript
     item.transcript_confirmed = True
+    await SQLAlchemyDiaryRepository(db).update_transcript(
+        input_id=input_id, transcript=item.transcript
+    )
     return ConfirmTranscriptResponse(
         session_id=session_id,
         input_id=input_id,
@@ -90,6 +138,7 @@ async def chat(
     request: DiaryChatRequest,
     pipeline: DiaryPipeline = Depends(get_pipeline),
     orchestrator: DiaryOrchestrator = Depends(get_diary_orchestrator),
+    db: AsyncSession = Depends(get_db),
 ) -> DiaryChatResponse:
     require_session(session_id, pipeline)
     state = diary_states.setdefault(session_id, orchestrator.start_session(session_id))
@@ -139,6 +188,17 @@ async def chat(
         ) from exc
     if state.latest_turn is None:
         raise HTTPException(status_code=409, detail="이미 일기 생성 준비가 완료되었습니다.")
+    session = pipeline.repo.sessions[session_id]
+    persistence = SQLAlchemyDiaryRepository(db)
+    assistant_text = state.latest_turn.reaction
+    if state.latest_turn.follow_up_questions:
+        assistant_text += "\n" + state.latest_turn.follow_up_questions[0]
+    await persistence.save_chat_turn(
+        session_id=session_id,
+        user_id=session.user_id,
+        user_chat=request.message,
+        assistant_chat=assistant_text,
+    )
     return DiaryChatResponse(
         session_id=session_id,
         stage=state.stage.value,
@@ -186,19 +246,6 @@ def review_diary_information(
     )
 
 
-async def _run_generation_job(
-    job_id: str,
-    state,
-    orchestrator: DiaryOrchestrator,
-) -> None:
-    generation_jobs[job_id]["status"] = "processing"
-    try:
-        version = await orchestrator.request_generation(state)
-        generation_jobs[job_id].update(status="completed", result=version.model_dump())
-    except Exception as exc:
-        generation_jobs[job_id].update(status="failed", error_code=type(exc).__name__)
-
-
 @router.post("/{session_id}/generate", response_model=GenerationJobResponse, status_code=202)
 async def generate_diary(
     session_id: str,
@@ -211,6 +258,7 @@ async def generate_diary(
         raise HTTPException(status_code=409, detail="추가 대화를 먼저 완료해 주세요.")
     job_id = str(uuid4())
     generation_jobs[job_id] = {"job_id": job_id, "status": "queued", "result": None}
+
     task = asyncio.create_task(_run_generation_job(job_id, state, orchestrator))
     generation_tasks.add(task)
     task.add_done_callback(generation_tasks.discard)
