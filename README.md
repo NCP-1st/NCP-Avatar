@@ -224,22 +224,19 @@ NCP-Avatar/
 
 > AI 코딩 도구(Claude Code, Codex 등)용 상세 개발 가이드라인은 [CLAUDE.md](./CLAUDE.md) 참고.
 
-## 15. 더미 전처리 파이프라인 실행
+## 15. 일기 파이프라인 실행
 
-외부 CLOVA/NCP 키 없이 D-01의 입력·전처리 흐름을 검증할 수 있다. 더미 모드에서는
-미디어 본문을 JSON의 `file_base64`로 전송하며, Object Storage·STT 대신 교체 가능한
-더미 어댑터가 결정적인 테스트 결과를 반환한다. 이미지는 OCR하지 않고 HCX-005 입력용으로 저장한다.
+미디어 본문은 JSON의 `file_base64`로 전송한다. 이미지는 OCR하지 않고 HCX-005 입력용으로 저장하며,
+음성은 CLOVA Speech로 변환한 뒤 사용자가 transcript를 확인해야 대화에 반영한다.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r dev/requirements-test.txt
+pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload
 ```
 
-API 문서는 서버 실행 후 `http://127.0.0.1:8000/docs`에서 확인한다. 현재 공개 범위는 `/health`,
-`/diary/sessions`, `/diary/{session_id}/inputs` 세 엔드포인트뿐이다. 전처리 테스트는
-다음 명령으로 실행한다.
+API 문서는 서버 실행 후 `http://127.0.0.1:8000/docs`에서 확인한다. 테스트는 다음 명령으로 실행한다.
 
 ```bash
 pytest -q
@@ -249,28 +246,26 @@ pytest -q
 나머지 항목의 성공 유지와 동일 `input_id` 개별 재시도를 포함한다. 생성·버전·렌더 API는 후속
 단계에서 구현한다.
 
-더미 및 테스트 전용 코드는 제품 구현과 다음처럼 분리한다.
+테스트 전용 코드는 제품 구현과 다음처럼 분리한다.
 
 ```text
-backend/testing/       # 인메모리 저장소와 더미 어댑터
-tests/dummy_pipeline/  # 외부 서비스 없는 전체 파이프라인 테스트
-dev/                   # 테스트 전용 의존성
+tests/integration/  # 외부 호출을 테스트 어댑터로 대체한 통합 테스트
+tests/live/         # 실제 CLOVA API opt-in 테스트
 ```
 
 ### CLOVA Studio/Speech 연결
 
-`.env.example`을 `.env`로 복사하고 발급받은 값을 입력한 뒤 모드를 변경한다. `.env`는 커밋하지 않는다.
+`.env.example`을 `.env`로 복사하고 발급받은 값을 입력한다. `.env`는 커밋하지 않는다.
 
 ```dotenv
-MEDIARY_ADAPTER_MODE=clova
 CLOVA_SPEECH_CLIENT_ID=발급값
 CLOVA_SPEECH_CLIENT_SECRET=발급값
 CLOVA_STUDIO_API_KEY=발급값
 ```
 
-서버를 재시작하면 `/diary/{session_id}/inputs`가 실제 CLOVA Speech를 호출한다. 설정값이
-누락되면 서버 시작 시 누락된 환경변수를 명시한 오류가 발생한다. 현재 Object Storage와 DB는 계속
-더미·인메모리 구현을 사용한다. 짧은 음성은 CSR 기준이며 장문 음성은 별도 CLOVA Speech 어댑터가 필요하다.
+서버를 재시작하면 `/diary/{session_id}/inputs`가 실제 CLOVA Speech를 호출한다. 현재 미디어 저장은
+로컬 data URL, 일기 저장소는 인메모리 구현을 사용한다. 짧은 음성은 CSR 기준이며 장문 음성은
+별도 CLOVA Speech 어댑터가 필요하다.
 HCX-005/007, Voice, Live2D 연결은 현재 인터페이스와 구조화 스키마 단계이며 공개 API는 후속 구현한다.
 
 ### 업데이트된 처리 플로우와 코드 위치
@@ -280,11 +275,10 @@ HCX-005/007, Voice, Live2D 연결은 현재 인터페이스와 구조화 스키�
 | 입력·전처리 | `backend/orchestration/diary_pipeline.py` — 텍스트 정규화, 이미지 검증·저장, 음성 STT |
 | HCX-005 멀티모달 해석 | `backend/agents/diary_chatbot/hcx.py` — 이미지 URL + 텍스트 + transcript 입력 |
 | 정보 누적 | `backend/agents/diary_chatbot/models.py` — 사건·시간·인물·장소·행동·감정·근거 `input_id` |
-| 충족 여부·추가 질문 | `backend/orchestration/diary_workflow.py` — 질문 최대 3개 상태 전이 |
+| 충족 여부·추가 질문 | `backend/orchestration/diary_workflow.py` — 필수정보 확인 및 건너뛰기 상태 전이 |
 | 최종 일기 생성 | `Hcx007DiaryGenerationAgent` — HCX-007 구조화 출력, 선택적 사용 |
 | 수정·승인 | `DiaryVersion` 및 승인 상태 계약 |
 | 승인 후 영상 | `services/voice`, `services/avatar`, `services/storage` 인터페이스 + 승인 게이트 |
 
-현재 Swagger에는 검증 완료된 입력 API만 노출한다. 챗·생성·승인·렌더 엔드포인트는 저장소와 비동기
-작업 구현이 연결되기 전까지 노출하지 않는다. HCX-005는 이미지 입력을 지원하지만 구조화 출력은
-지원하지 않으므로 JSON 프롬프트 결과를 Pydantic으로 검증한다. HCX-007 최종 생성은 구조화 출력을 사용한다.
+현재 Swagger에는 입력·채팅·검토·비동기 일기 생성·작업 조회 API를 노출한다. HCX-005 응답은
+JSON 결과를 Pydantic으로 검증하고, HCX-007 최종 생성도 구조화된 스키마로 검증한다.

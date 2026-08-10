@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +17,6 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
     file_values = {key: value for key, value in dotenv_values(path).items() if value is not None}
     env = {**file_values, **os.environ}
     return {
-        "mode": env.get("MEDIARY_ADAPTER_MODE", "dummy").lower(),
         "llm": {
             "provider": "clova_native",
             "api_key": env.get("CLOVA_STUDIO_API_KEY", ""),
@@ -56,38 +53,3 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
             "password": env.get("DB_PASSWORD", ""),
         },
     }
-
-
-@dataclass(frozen=True)
-class Settings:
-    adapter_mode: str
-    clova_speech_client_id: str
-    clova_speech_client_secret: str
-
-    @property
-    def use_clova(self) -> bool:
-        return self.adapter_mode == "clova"
-
-    def validate_clova(self) -> None:
-        required = {
-            "CLOVA_SPEECH_CLIENT_ID": self.clova_speech_client_id,
-            "CLOVA_SPEECH_CLIENT_SECRET": self.clova_speech_client_secret,
-        }
-        missing = [name for name, value in required.items() if not value]
-        if missing:
-            raise RuntimeError(f"missing CLOVA settings: {', '.join(missing)}")
-
-
-@lru_cache
-def get_settings() -> Settings:
-    config = load_config()
-    mode = config["mode"]
-    if mode not in {"dummy", "clova"}:
-        raise RuntimeError("MEDIARY_ADAPTER_MODE must be 'dummy' or 'clova'")
-    return Settings(
-        adapter_mode=mode,
-        clova_speech_client_id=config["speech"]["client_id"],
-        clova_speech_client_secret=(
-            config["speech"]["client_secret"] or config["speech"]["secret_key"]
-        ),
-    )

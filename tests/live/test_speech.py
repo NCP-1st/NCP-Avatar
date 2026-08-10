@@ -1,21 +1,11 @@
 import os
 import pytest
-from dotenv import load_dotenv  # ← 추가
+from dotenv import load_dotenv
 
 from backend.services.speech.clova import ClovaSpeechToTextAdapter
-from backend.services.speech.dummy import DummySpeechToTextAdapter
 
 # .env 파일 명시적 로드
 load_dotenv()
-
-
-@pytest.mark.anyio
-async def test_dummy_stt_adapter():
-    adapter = DummySpeechToTextAdapter()
-    text, meta = await adapter.transcribe(b"fake-audio-bytes", mime_type="audio/mp3")
-
-    assert text == "[임시 음성 텍스트]"
-    assert meta["provider"] == "dummy-stt"
 
 
 @pytest.mark.live

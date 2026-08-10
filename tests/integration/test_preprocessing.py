@@ -2,8 +2,19 @@ import base64
 
 from fastapi.testclient import TestClient
 
-from backend.dependencies import repository
+from backend.dependencies import pipeline, repository
 from backend.main import app
+from backend.services.speech import SpeechToTextAdapter
+
+
+class TestSpeechAdapter(SpeechToTextAdapter):
+    async def transcribe(
+        self, audio: bytes, *, mime_type: str
+    ) -> tuple[str, dict[str, str | float]]:
+        return "테스트 음성 인식 결과", {"provider": "test-stt", "confidence": 1.0}
+
+
+pipeline.stt = TestSpeechAdapter()
 
 client = TestClient(app)
 
@@ -19,10 +30,10 @@ def create_session() -> str:
 
 
 def test_health_and_multimodal_preprocessing() -> None:
-    assert client.get("/health").json() == {"status": "ok", "adapters": "dummy"}
+    assert client.get("/health").json() == {"status": "ok"}
     session_id = create_session()
     image = base64.b64encode(b"\x89PNG\r\n\x1a\nplaceholder").decode()
-    audio = base64.b64encode(b"dummy-audio").decode()
+    audio = base64.b64encode(b"test-audio").decode()
     response = client.post(f"/diary/{session_id}/inputs", json={"items": [
         {"input_id": "text-1", "type": "text", "text": "친구와 공원에서 산책했다."},
         {"input_id": "photo-1", "type": "photo", "file_base64": image, "mime_type": "image/png"},
@@ -32,7 +43,7 @@ def test_health_and_multimodal_preprocessing() -> None:
     assert response.json()["error_count"] == 0
     assert all(item["status"] == "ok" for item in response.json()["items"])
     audio_item = next(item for item in response.json()["items"] if item["type"] == "audio")
-    assert audio_item["transcript"] == "[임시 음성 텍스트]"
+    assert audio_item["transcript"] == "테스트 음성 인식 결과"
     assert audio_item["transcript_confirmed"] is False
 
     confirmed = client.put(
@@ -68,7 +79,7 @@ def test_failed_item_can_be_retried_individually() -> None:
 
 def test_unconfirmed_audio_is_blocked_before_chat_agent_call() -> None:
     session_id = create_session()
-    audio = base64.b64encode(b"dummy-audio").decode()
+    audio = base64.b64encode(b"test-audio").decode()
     uploaded = client.post(f"/diary/{session_id}/inputs", json={"items": [{
         "input_id": "audio-unconfirmed",
         "type": "audio",
@@ -96,4 +107,6 @@ def test_openapi_exposes_only_current_scope() -> None:
         "/diary/{session_id}/generate",
         "/diary/{session_id}/review",
         "/diary/jobs/{job_id}",
+        "/",
+        "/api/calendar",
     }

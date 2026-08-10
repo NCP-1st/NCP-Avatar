@@ -36,8 +36,8 @@ if "diary_session_id" not in st.session_state:
     except RuntimeError as exc:
         st.error(str(exc))
         st.code(
-            "MEDIARY_ADAPTER_MODE=clova .venv/bin/python -m uvicorn "
-            "backend.main:app --host 127.0.0.1 --port 8000 --reload",
+            ".venv/bin/python -m uvicorn backend.main:app "
+            "--host 127.0.0.1 --port 8000 --reload",
             language="bash",
         )
         if st.button("백엔드 연결 다시 시도", type="primary"):
@@ -246,12 +246,6 @@ if accepting_text and not pending_audio:
                     if failed:
                         raise RuntimeError(failed[0].get("error_reason") or "첨부 전처리 실패")
                     input_ids = [item["input_id"] for item in preprocessed["items"]]
-                    providers = [
-                        item.get("provider_meta", {}).get("provider")
-                        for item in preprocessed["items"]
-                    ]
-                    if "dummy-stt" in providers:
-                        st.warning("현재 음성은 dummy STT 모드라 임시 transcript로 처리됩니다.")
                     audio_items = [
                         {
                             "input_id": item["input_id"],

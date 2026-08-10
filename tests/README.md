@@ -7,7 +7,7 @@
 |---|---|
 | `agents/` | 정규화·감정 검증 등 에이전트 순수 로직 테스트와 목 응답 |
 | `orchestration/` | 여러 턴 누적, 확인 게이트, 승인 게이트 테스트 |
-| `dummy_pipeline/` | API·전처리·어댑터를 묶은 로컬 통합 테스트 |
+| `integration/` | API·전처리·어댑터를 묶은 로컬 통합 테스트 |
 | `architecture/` | 에이전트 직접 호출 및 테스트 패키지 역참조 방지 |
 | `live/` | 실제 CLOVA API를 사용하는 opt-in 테스트 |
 | `assets/` | 라이브·멀티모달 테스트용 사진과 음성 fixture |
@@ -16,7 +16,7 @@
 
 - 인메모리 저장소: `backend/repositories/in_memory.py`
 - 로컬 data URL 미디어 저장: `backend/services/storage/inline.py`
-- 더미 STT: `backend/services/speech/dummy.py`
+- 테스트 STT: `tests/integration/test_preprocessing.py` 내부 테스트 어댑터
 
 기본 테스트:
 

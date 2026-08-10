@@ -28,8 +28,8 @@ python3 -m venv .venv
 
 ```bash
 .venv/bin/python -m pytest \
-  tests/dummy_pipeline/test_diary_workflow.py::test_same_missing_field_can_be_asked_until_confirmed \
-  tests/dummy_pipeline/test_diary_workflow.py::test_user_can_skip_current_missing_field \
+  tests/integration/test_diary_workflow.py::test_same_missing_field_can_be_asked_until_confirmed \
+  tests/integration/test_diary_workflow.py::test_user_can_skip_current_missing_field \
   -vv -s
 ```
 
@@ -73,7 +73,7 @@ HCX-005 에이전트가 HCX-007 에이전트를 직접 호출하지 않고 오�
 
 ```bash
 .venv/bin/python -m pytest \
-  tests/dummy_pipeline/test_hcx_agents.py::test_interpret_failure_log_does_not_store_exception_message \
+  tests/integration/test_hcx_agents.py::test_interpret_failure_log_does_not_store_exception_message \
   -vv -s
 ```
 
