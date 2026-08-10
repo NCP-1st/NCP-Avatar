@@ -36,12 +36,13 @@
 
 ### 4.1 AI 아바타 일기
 1. **입력**: 사진·음성·텍스트를 단일 채팅 세션에 혼합 업로드
-2. **전처리**: 형식·용량 검증 → 음성 STT, 이미지 OCR·메타데이터 추출
-3. **추가 질문**: 사건·감정·시간 정보 부족 시 챗봇이 최대 3개 확인 질문
-4. **초안 생성**: 하루 요약, 감정 태그, 핵심 사건, 30초 나레이션 대본
-5. **사용자 검토**: 제목·요약·대본·감정 태그 수정 또는 재생성
-6. **영상 생성**: **승인된 대본만** TTS + 아바타 립싱크로 전달
-7. **저장**: 본문·영상·입력 원본·생성 버전·수정 이력을 날짜별 저장
+2. **전처리**: 텍스트 정규화, 이미지 형식·크기 검사 및 Object Storage 저장, 음성 형식·길이 검사 및 STT
+3. **멀티모달 해석**: HCX-005가 텍스트·이미지와 음성 transcript를 함께 해석
+4. **정보 누적**: 사건·시간·인물·장소·행동·감정과 근거 `input_id`를 구조화해 누적
+5. **추가 질문**: 정보가 부족하면 최대 3개 질문, 충분하거나 질문 한도 도달 시 생성 단계로 이동
+6. **초안 생성**: HCX-005 또는 선택적 HCX-007 구조화 출력으로 일기와 30초 대본 생성
+7. **사용자 검토**: 제목·본문·대본·감정 태그 수정 및 승인
+8. **영상 생성**: **승인된 대본만** CLOVA Voice + Live2D로 렌더링 후 Object Storage 저장
 
 ### 4.2 위치 기반 메시지
 - 지도에서 좌표 선택 또는 현재 위치 사용
@@ -66,7 +67,7 @@
 | ID | 요구사항 | 완료 기준 |
 |----|----------|-----------|
 | D-01 | 텍스트·이미지·음성 혼합 입력 | 세션당 최소 10개 항목 업로드, 실패 항목 개별 재시도 |
-| D-02 | STT·OCR 결과 확인·수정 | 사용자가 변환 텍스트 편집 가능 |
+| D-02 | STT 결과 확인·수정 | 사용자가 음성 변환 텍스트를 편집 가능 |
 | D-03 | 일기 생성 | 입력 정보 기반 일기 생성 |
 | D-04 | 요약·대본 생성 | 제목, 3~7문단, 30초 내외 대본 |
 | D-05 | 추가 질문 | 최대 3개, 건너뛰기 가능 |
@@ -102,7 +103,7 @@
 | Backend | FastAPI | 기능별 API 분리, 비동기 작업 상태 조회, 인증·권한 |
 | Database | Naver Cloud DB for MySQL | 정형 데이터 저장 (필요 시 Graph DB 확장) |
 | Object Storage | Naver Object Storage | 원본 미디어·영상 저장, DB에는 경로·메타데이터만 |
-| AI | CLOVA Studio / Speech / Voice / OCR / Vision | 요약·대본·감정 분석, STT, TTS, OCR |
+| AI | CLOVA Studio HCX-005/007 / Speech / Voice | 멀티모달 이해, 구조화·생성, STT, TTS |
 | Map | Naver Maps | 좌표 선택, 메시지 핀, 반경 내 접근 제어 |
 | Avatar | Live2D 또는 VRM | 기본 캐릭터 우선, TTS 립싱크 영상 |
 | Infra | Naver Cloud Platform | 개발·운영 분리, 로그·모니터링·비밀키 관리 |
@@ -113,10 +114,11 @@
 | 에이전트 | 처리 | 출력/검증 |
 |----------|------|-----------|
 | 오케스트레이터 | 호출 순서, 실패 재시도, 분기 관리 | 단계별 상태·최종 결과 통합 |
-| 데이터 전처리 | 형식 검사, STT/OCR, 시간순 정렬 | 정규화 입력 + 오류 목록 |
+| 데이터 전처리 | 텍스트 정규화, 이미지 저장, 음성 STT, 시간순 정렬 | 정규화 입력 + 오류 목록 |
+| 멀티모달 대화 | HCX-005 이미지 이해·대화·사건 후보 추출 | 사건·시간·인물·장소·행동·감정 + 근거 input_id |
 | 사건·맥락 추출 | 사건·인물·장소·행동 추출 | 구조화 사건 목록, 신뢰도 |
 | 감정·분위기 분석 | 감정 후보·근거 문장 추출 | 감정 태그, 강도, 근거 |
-| 스토리 작성 | 요약·1분 대본 생성 | 수정 가능한 초안 |
+| 스토리 작성 | HCX-005 또는 선택적 HCX-007로 일기·30초 대본 생성 | 수정 가능한 구조화 초안 |
 | 아바타·나레이션 | TTS, 립싱크, 렌더링 | 영상 URL, 생성 로그 |
 | 품질 검수 | 사실 일치·금칙어·길이·누락 검사 | 통과/수정 요청/실패 사유 |
 
@@ -188,14 +190,14 @@ NCP-Avatar/
 │  ├─ src/              #   components 등
 │  ├─ pages/            #   diary, counsel, calendar, map
 │  └─ api/              #   백엔드 API 클라이언트
-├─ bakcend/             # FastAPI 백엔드
+├─ backend/             # FastAPI 백엔드
 │  ├─ api/              #   라우터 (기능별 분리)
 │  ├─ orchestration/    #   에이전트 오케스트레이터
 │  ├─ agents/
 │  │  ├─ diary_chatbot/    # 일기 챗봇 에이전트
 │  │  ├─ counsel_chatbot/  # 상담사 에이전트
 │  │  └─ history_agent/    # 과거 이력 조회 에이전트
-│  ├─ services/         #   avatar, speech, storage, maps 어댑터
+│  ├─ services/         #   llm(HCX), avatar, speech, voice, storage, maps 어댑터
 │  └─ config.py
 ├─ database/
 │  ├─ migrations/       # 스키마 마이그레이션
@@ -221,3 +223,62 @@ NCP-Avatar/
 4. 본 문서는 기술 검증·사용자 테스트 결과에 따라 버전 관리하며, 변경 시 범위·담당·데이터 영향도를 기록한다.
 
 > AI 코딩 도구(Claude Code, Codex 등)용 상세 개발 가이드라인은 [CLAUDE.md](./CLAUDE.md) 참고.
+
+## 15. 일기 파이프라인 실행
+
+미디어 본문은 JSON의 `file_base64`로 전송한다. 이미지는 OCR하지 않고 HCX-005 입력용으로 저장하며,
+음성은 CLOVA Speech로 변환한 뒤 사용자가 transcript를 확인해야 대화에 반영한다.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --reload
+```
+
+API 문서는 서버 실행 후 `http://127.0.0.1:8000/docs`에서 확인한다. 테스트는 다음 명령으로 실행한다.
+
+```bash
+pytest -q
+```
+
+검증 범위는 헬스체크 → 세션 생성 → 텍스트·사진·음성 혼합 입력 전처리이며, 일부 항목 실패 시
+나머지 항목의 성공 유지와 동일 `input_id` 개별 재시도를 포함한다. 생성·버전·렌더 API는 후속
+단계에서 구현한다.
+
+테스트 전용 코드는 제품 구현과 다음처럼 분리한다.
+
+```text
+tests/integration/  # 외부 호출을 테스트 어댑터로 대체한 통합 테스트
+tests/live/         # 실제 CLOVA API opt-in 테스트
+```
+
+### CLOVA Studio/Speech 연결
+
+`.env.example`을 `.env`로 복사하고 발급받은 값을 입력한다. `.env`는 커밋하지 않는다.
+
+```dotenv
+CLOVA_SPEECH_CLIENT_ID=발급값
+CLOVA_SPEECH_CLIENT_SECRET=발급값
+CLOVA_STUDIO_API_KEY=발급값
+```
+
+서버를 재시작하면 `/diary/{session_id}/inputs`가 실제 CLOVA Speech를 호출한다. 현재 미디어 저장은
+로컬 data URL, 일기 저장소는 인메모리 구현을 사용한다. 짧은 음성은 CSR 기준이며 장문 음성은
+별도 CLOVA Speech 어댑터가 필요하다.
+HCX-005/007, Voice, Live2D 연결은 현재 인터페이스와 구조화 스키마 단계이며 공개 API는 후속 구현한다.
+
+### 업데이트된 처리 플로우와 코드 위치
+
+| 단계 | 현재 뼈대 |
+|------|-----------|
+| 입력·전처리 | `backend/orchestration/diary_pipeline.py` — 텍스트 정규화, 이미지 검증·저장, 음성 STT |
+| HCX-005 멀티모달 해석 | `backend/agents/diary_chatbot/hcx.py` — 이미지 URL + 텍스트 + transcript 입력 |
+| 정보 누적 | `backend/agents/diary_chatbot/models.py` — 사건·시간·인물·장소·행동·감정·근거 `input_id` |
+| 충족 여부·추가 질문 | `backend/orchestration/diary_workflow.py` — 필수정보 확인 및 건너뛰기 상태 전이 |
+| 최종 일기 생성 | `Hcx007DiaryGenerationAgent` — HCX-007 구조화 출력, 선택적 사용 |
+| 수정·승인 | `DiaryVersion` 및 승인 상태 계약 |
+| 승인 후 영상 | `services/voice`, `services/avatar`, `services/storage` 인터페이스 + 승인 게이트 |
+
+현재 Swagger에는 입력·채팅·검토·비동기 일기 생성·작업 조회 API를 노출한다. HCX-005 응답은
+JSON 결과를 Pydantic으로 검증하고, HCX-007 최종 생성도 구조화된 스키마로 검증한다.

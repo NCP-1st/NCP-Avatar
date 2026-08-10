@@ -1,23 +1,16 @@
-"""FastAPI main entrypoint to run the Mediary backend server."""
+"""FastAPI main entrypoint for the Mediary backend server."""
 
 import logging
-import os
 
-import uvicorn
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
-# Load env variables from project root .env file before loading configs
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-
-from backend.api import calendar
+from backend.api import calendar, diary
 from backend.api.maps import router as maps_router
 from backend.api.script import router as script_router
 from database.conn.db import engine
 
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -34,30 +27,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(diary.router)
 app.include_router(calendar.router, prefix="/api")
 app.include_router(maps_router, prefix="/api")
 app.include_router(script_router, prefix="/api")
 
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Return the backend status."""
+    return {"status": "ok"}
+
+
 @app.get("/")
-async def root() -> dict[str, object]:
-    """Health check endpoint."""
-    db_ok = False
+async def root() -> dict[str, str | bool]:
+    """Return the service status and a best-effort database health check."""
+    database_connected = False
     try:
-        from sqlalchemy import text
-
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        db_ok = True
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+        database_connected = True
     except Exception as exc:
-        logger.warning("Database connection check failed: %s", exc)
-
+        logger.warning(
+            "database_health_check_failed",
+            extra={"error_type": type(exc).__name__},
+        )
     return {
         "status": "online",
         "service": "Mediary Backend API",
-        "database_connected": db_ok,
+        "database_connected": database_connected,
     }
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
