@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from backend.api import calendar, diary
+from backend.api import calendar, diary, counsel
 from backend.api.maps import router as maps_router
 from backend.api.script import router as script_router
 from database.conn.db import engine
@@ -31,6 +31,7 @@ app.include_router(diary.router)
 app.include_router(calendar.router, prefix="/api")
 app.include_router(maps_router, prefix="/api")
 app.include_router(script_router, prefix="/api")
+app.include_router(counsel.router, prefix="/api")
 
 
 @app.get("/health")
