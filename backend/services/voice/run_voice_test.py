@@ -25,22 +25,20 @@ _TEST_DATA_PATH = _VOICE_DIR / "test.json"
 _OUTPUT_PATH = _VOICE_DIR / "output" / "test_diary.mp3"
 
 
-def load_test_diary(path: Path = _TEST_DATA_PATH) -> dict[str, Any]:
-    """승인된 완성 일기 테스트 데이터를 읽는다."""
-    diary = json.loads(path.read_text(encoding="utf-8"))
-    if not diary.get("approved"):
-        raise ValueError("승인된 일기만 음성으로 생성할 수 있습니다")
-    if not str(diary.get("story", "")).strip():
-        raise ValueError("test.json에 story가 필요합니다")
-    return diary
+def load_test_script(path: Path = _TEST_DATA_PATH) -> dict[str, Any]:
+    """대본 생성 결과 형식의 Voice 테스트 데이터를 읽는다."""
+    script = json.loads(path.read_text(encoding="utf-8"))
+    if not str(script.get("narration_text", "")).strip():
+        raise ValueError("test.json에 narration_text가 필요합니다")
+    return script
 
 
 async def main() -> None:
     config = load_config()
-    diary = load_test_diary()
-    voice = diary.get("voice", {})
-    speaker = voice.get("speaker", config["voice"]["speaker"])
-    emotion_name = voice.get("emotion", "중립")
+    script = load_test_script()
+    voice = script.get("voice", {})
+    speaker = voice.get("speaker", "nara")
+    emotion_name = script.get("emotion", "중립")
     strength_name = voice.get("emotion_strength")
 
     if emotion_name not in EMOTION_VALUES:
@@ -49,7 +47,7 @@ async def main() -> None:
         raise ValueError(f"지원하지 않는 emotion_strength 이름입니다: {strength_name}")
 
     audio = await synthesize_speech(
-        diary["story"],
+        script["narration_text"],
         config,
         speaker=speaker,
         emotion=EMOTION_VALUES[emotion_name],

@@ -78,12 +78,11 @@ async def synthesize_speech(
     """텍스트를 음성으로 합성하고 오디오 바이트를 반환한다.
 
     기본 음성은 ``nara``, 기본 감정은 중립(0), 기본 반환 형식은 ``mp3``다.
-    비밀값은 공통 ``clova_api`` 설정에서 주입받는다.
+    인증 정보는 main의 ``voice`` 설정에서 주입받는다.
     """
     if not text.strip():
         raise ValueError("합성할 text는 비어 있을 수 없습니다")
 
-    credentials = config["clova_api"]
     voice_config = config["voice"]
     selected_speaker = speaker or voice_config.get("speaker", "nara")
     selected_format = audio_format or voice_config.get("format", "mp3")
@@ -95,8 +94,8 @@ async def synthesize_speech(
         audio_format=selected_format,
     )
 
-    client_id = credentials["client_id"]
-    client_secret = credentials["client_secret"]
+    client_id = voice_config["client_id"]
+    client_secret = voice_config["client_secret"]
     if not client_id or not client_secret:
         raise ValueError("CLOVA API Client ID와 Client Secret이 필요합니다")
 
@@ -113,7 +112,9 @@ async def synthesize_speech(
         request_data["emotion-strength"] = emotion_strength
 
     owns_client = http_client is None
-    client = http_client or httpx.AsyncClient(timeout=voice_config["timeout_s"])
+    client = http_client or httpx.AsyncClient(
+        timeout=voice_config.get("timeout_s", 30.0)
+    )
     try:
         response = await client.post(
             _resolve_tts_url(voice_config["api_url"]),

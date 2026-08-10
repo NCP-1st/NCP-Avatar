@@ -1,5 +1,6 @@
 from backend.services.llm.base import (
     ChatMessage,
+    LLMClient,
     LLMRequest,
     LLMResponse,
     TokenUsage,
@@ -10,6 +11,8 @@ from backend.services.llm.generate import generate_llm
 
 __all__ = [
     "ChatMessage",
+    "ClovaNativeClient",
+    "LLMClient",
     "LLMRequest",
     "LLMResponse",
     "ModelPurpose",
