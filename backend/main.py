@@ -1,20 +1,14 @@
-"""FastAPI main entrypoint to run the Mediary backend server."""
+"""FastAPI main entrypoint for the Mediary backend server."""
 
 import logging
-import os
-import uvicorn
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+from sqlalchemy import text
 
-# Load env variables from project root .env file before loading configs
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-
-from backend.api import calendar
+from backend.api import calendar, diary
 from database.conn.db import engine
 
-# Configure logger
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -23,38 +17,45 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Configure CORS for Streamlit frontend interaction
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Streamlit might run on custom ports, adjust in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register routers
+app.include_router(diary.router)
 app.include_router(calendar.router, prefix="/api")
 
 
-@app.get("/")
-async def root():
-    """Health check endpoint."""
-    db_ok = False
-    try:
-        # Simple ping check to database
-        from sqlalchemy import text
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        db_ok = True
-    except Exception as e:
-        logger.warning(f"Database connection check failed: {e}")
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Return the backend status."""
+    return {"status": "ok"}
 
+
+@app.get("/")
+async def root() -> dict[str, str | bool]:
+    """Return the service status and a best-effort database health check."""
+    database_connected = False
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+        database_connected = True
+    except Exception as exc:
+        logger.warning(
+            "database_health_check_failed",
+            extra={"error_type": type(exc).__name__},
+        )
     return {
         "status": "online",
         "service": "Mediary Backend API",
-        "database_connected": db_ok,
+        "database_connected": database_connected,
     }
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

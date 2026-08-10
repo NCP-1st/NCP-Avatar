@@ -8,9 +8,9 @@
 **Mediary** — 사진·음성·텍스트를 채팅으로 업로드하면 AI가 일기 + 30초 나레이션 대본을 생성하고, 승인 후 Live2D/VRM 아바타 영상으로 저장하는 서비스. 위치 기반 메시지, 개인 맞춤 상담, 캘린더/이력 조회 포함.
 
 - Frontend: **Streamlit** (`frontend/`)
-- Backend: **FastAPI** (`bakcend/`) — 폴더명이 오타지만 현재 구조 유지 중
+- Backend: **FastAPI** (`backend/`)
 - DB: **Naver Cloud DB for MySQL** / 미디어는 **Naver Object Storage**
-- AI: **CLOVA Studio / Speech / Voice / OCR / Vision**
+- AI: **CLOVA Studio HCX-005/007 / Speech / Voice**
 - 지도: **Naver Maps** / 인프라: **Naver Cloud Platform (NCP)**
 
 ## 디렉터리 구조와 코드 배치 규칙
@@ -21,14 +21,14 @@ frontend/
 ├─ pages/        # 화면 단위: diary, counsel, calendar, map
 └─ api/          # 백엔드 API 호출 클라이언트 (UI에서 직접 HTTP 호출 금지)
 
-bakcend/
+backend/
 ├─ api/          # FastAPI 라우터. 기능별 파일 분리 (diary, counsel, calendar, location, jobs)
 ├─ orchestration/# 에이전트 오케스트레이터 (호출 순서, 재시도, 분기)
 ├─ agents/       # 에이전트 로직. 한 에이전트 = 한 폴더
 │  ├─ diary_chatbot/
 │  ├─ counsel_chatbot/
 │  └─ history_agent/
-├─ services/     # 외부 서비스 어댑터: avatar, speech(STT/TTS), storage, maps
+├─ services/     # 외부 서비스 어댑터: llm(HCX), avatar, speech, voice, storage, maps
 └─ config.py     # 설정. 비밀값은 환경변수로만
 
 database/
@@ -37,7 +37,7 @@ database/
 ```
 
 **배치 원칙**
-- 외부 AI/클라우드 서비스(CLOVA, Object Storage, Maps) 호출은 반드시 `bakcend/services/` 어댑터를 통한다. 에이전트나 라우터에서 SDK를 직접 호출하지 않는다. (모델·서비스 교체 가능성 확보)
+- 외부 AI/클라우드 서비스(CLOVA, Object Storage, Maps) 호출은 반드시 `backend/services/` 어댑터를 통한다. 에이전트나 라우터에서 SDK를 직접 호출하지 않는다. (모델·서비스 교체 가능성 확보)
 - 에이전트 간 직접 호출 금지 — 흐름 제어는 `orchestration/`이 담당한다.
 - Streamlit 페이지에서 DB 직접 접근 금지 — 항상 백엔드 API를 경유한다.
 
@@ -92,7 +92,7 @@ AI 생성(요약·대본)과 영상 렌더링은 **비동기 작업**으로 처�
 ## 테스트
 
 - 기능 테스트: 요구사항 ID별 정상·실패·재시도 시나리오
-- 멀티모달 엣지 케이스: 긴 음성, 흐린 사진, OCR 실패, 중복 파일, 시간 정보 누락
+- 멀티모달 엣지 케이스: 긴 음성, 지원하지 않는 이미지, 이미지 크기 초과, 중복 파일, 시간 정보 누락
 - AI 평가: 사실 일치, 요약 누락, 감정 과도 해석, 대본 길이, 사용자 수정 반영
 - 보안: 파일 형식 위장, 프롬프트 인젝션
 - 상담 안전: 자해·타해, 의료 질문, 의존 유도, 개인정보 노출, 근거 없는 추론
@@ -101,7 +101,7 @@ AI 생성(요약·대본)과 영상 렌더링은 **비동기 작업**으로 처�
 
 | 담당 | 영역 | 주요 코드 위치 |
 |------|------|----------------|
-| 민진홍 | 캘린더 DB | `database/`, `bakcend/api/`(calendar) |
-| 김수만 | 일기 챗봇 | `bakcend/agents/diary_chatbot/` |
-| 김나형 | 일기 챗봇 | `bakcend/agents/diary_chatbot/` |
-| 권예원 | 상담가 챗봇 | `bakcend/agents/counsel_chatbot/` |
+| 민진홍 | 캘린더 DB | `database/`, `backend/api/`(calendar) |
+| 김수만 | 일기 챗봇 | `backend/agents/diary_chatbot/` |
+| 김나형 | 일기 챗봇 | `backend/agents/diary_chatbot/` |
+| 권예원 | 상담가 챗봇 | `backend/agents/counsel_chatbot/` |

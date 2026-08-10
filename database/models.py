@@ -33,7 +33,7 @@ class User(Base):
     consent_scope: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     avatar_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     timezone: Mapped[str] = mapped_column(String(50), default="Asia/Seoul")
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -59,7 +59,7 @@ class DiarySession(Base):
     user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     diary_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active, processing, completed, failed
-    
+
     # Coordinates of the primary location of the day
     latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 8), nullable=True)
     longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(11, 8), nullable=True)
@@ -169,12 +169,12 @@ class LocationMessage(Base):
     message_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     session_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("diary_sessions.session_id", ondelete="SET NULL"), nullable=True)
-    
+
     # Geography details
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 8), nullable=False)
     longitude: Mapped[Decimal] = mapped_column(Numeric(11, 8), nullable=False)
     radius: Mapped[float] = mapped_column(Float, default=100.0)  # Lock-unlock radius threshold in meters
-    
+
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     audio_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -191,7 +191,7 @@ class CounselSession(Base):
     user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     referenced_diary_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # List of diary session IDs referenced
     safety_level: Mapped[str] = mapped_column(String(20), default="safe")  # safe, restricted, crisis
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

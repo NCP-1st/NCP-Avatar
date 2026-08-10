@@ -21,7 +21,7 @@ async def run_tests():
     # Use SQLite in-memory engine with aiosqlite async driver
     TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
+
     AsyncSessionLocal = async_sessionmaker(
         bind=engine,
         class_=AsyncSession,
@@ -42,7 +42,7 @@ async def run_tests():
             timezone="Asia/Seoul",
         )
         session.add(user)
-        
+
         # Day 1: Completed, approved, with completed video, located in Seoul
         s1 = DiarySession(
             session_id="session_1",
@@ -54,7 +54,7 @@ async def run_tests():
             location_name="Seoul City Hall",
         )
         session.add(s1)
-        
+
         v1_draft = DiaryVersion(
             version_id="version_1_1",
             session_id="session_1",
@@ -76,7 +76,7 @@ async def run_tests():
             created_at=datetime(2026, 8, 1, 21, 0),
         )
         session.add_all([v1_draft, v1_approved])
-        
+
         video1 = AvatarVideo(
             video_id="video_1",
             version_id="version_1_2",
@@ -94,7 +94,7 @@ async def run_tests():
             status="processing",
         )
         session.add(s2)
-        
+
         v2_draft = DiaryVersion(
             version_id="version_2_1",
             session_id="session_2",
@@ -126,7 +126,7 @@ async def run_tests():
             location_name="Busan City Hall",
         )
         session.add(s4)
-        
+
         v4_approved = DiaryVersion(
             version_id="version_4_1",
             session_id="session_4",
@@ -137,7 +137,7 @@ async def run_tests():
             approved=True,
         )
         session.add(v4_approved)
-        
+
         video4 = AvatarVideo(
             video_id="video_4",
             version_id="version_4_1",
@@ -232,19 +232,19 @@ async def run_tests():
         # Test Case 1: Query all range
         rows = await run_query()
         assert len(rows) == 4, f"Expected 4 entries, got {len(rows)}"
-        
+
         # Test Case 2: Verify fallback to draft title and emotions
         # session_1 has approved version
         row1 = next(r for r in rows if r[0].session_id == "session_1")
         assert row1[1] == "Happy Day in Seoul"
         assert "happy" in row1[2]
         assert row1[3] == "completed"  # video status
-        
+
         # session_2 has NO approved version, should fallback to latest draft version
         row2 = next(r for r in rows if r[0].session_id == "session_2")
         assert row2[1] == "Tired Monday"
         assert "tired" in row2[2]
-        
+
         # session_3 has no versions
         row3 = next(r for r in rows if r[0].session_id == "session_3")
         assert row3[1] is None

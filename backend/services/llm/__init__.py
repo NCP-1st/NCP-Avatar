@@ -11,7 +11,6 @@ from backend.services.llm.generate import generate_llm
 
 __all__ = [
     "ChatMessage",
-    "ClovaNativeClient",
     "LLMClient",
     "LLMRequest",
     "LLMResponse",

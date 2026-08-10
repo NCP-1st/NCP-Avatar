@@ -22,7 +22,7 @@ async def run_integration_tests():
     # Use an in-memory database for testing
     TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
+
     AsyncSessionLocal = async_sessionmaker(
         bind=engine,
         class_=AsyncSession,
@@ -129,7 +129,7 @@ async def run_integration_tests():
         assert calendar_data["summary"]["total_entries"] == 1
         assert calendar_data["summary"]["completed_entries"] == 1
         assert calendar_data["summary"]["approved_entries"] == 1
-        
+
         entry = calendar_data["entries"][0]
         assert entry["session_id"] == "session_1"
         assert entry["diary_date"] == "2026-08-06"
