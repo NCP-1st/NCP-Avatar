@@ -280,7 +280,7 @@ def test_hcx007_result_is_validated_as_diary_draft() -> None:
             "title": "오늘의 산책",
             "paragraphs": ["첫 문단", "둘째 문단", "셋째 문단"],
             "summary": "공원을 산책했다.",
-            "narration_script": "오늘은 공원을 천천히 걸었습니다.",
+            "content": "오늘은 공원을 천천히 걸었습니다.",
             "emotion_tags": ["좋았다", "만족스러움"],
             "evidence_input_ids": ["photo-1"],
         }, ensure_ascii=False))

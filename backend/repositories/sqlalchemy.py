@@ -81,8 +81,7 @@ class SQLAlchemyDiaryRepository:
                 session_id=version.session_id,
                 title=version.title,
                 summary=version.summary,
-                content="\n\n".join(version.paragraphs),
-                script=version.narration_script,
+                content=version.content,
                 emotion_tags=version.emotion_tags,
                 paragraphs=version.paragraphs,
                 evidence_input_ids=version.evidence_input_ids,
@@ -93,6 +92,22 @@ class SQLAlchemyDiaryRepository:
         if session is not None:
             session.status = "completed"
         await self.db.commit()
+
+    async def get_version(self, version_id: str) -> DiaryVersion | None:
+        stored = await self.db.get(ORMDiaryVersion, version_id)
+        if stored is None:
+            return None
+        return DiaryVersion(
+            version_id=stored.version_id,
+            session_id=stored.session_id,
+            title=stored.title,
+            paragraphs=stored.paragraphs or [stored.content],
+            summary=stored.summary,
+            content=stored.content,
+            emotion_tags=stored.emotion_tags or [],
+            evidence_input_ids=stored.evidence_input_ids or [],
+            approved=stored.approved,
+        )
 
     async def _ensure_user(self, user_id: str) -> None:
         if await self.db.get(User, user_id) is None:

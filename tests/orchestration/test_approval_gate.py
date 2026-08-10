@@ -34,7 +34,7 @@ class StubDiaryGenerator(DiaryGenerationAgent):
             title=f"일기 {self.call_count}",
             paragraphs=["아침 기록", "점심 기록", "저녁 기록"],
             summary="오늘의 기록",
-            narration_script="오늘의 기록입니다.",
+            content="오늘의 기록입니다.",
             emotion_tags=[],
             evidence_input_ids=[],
         )
@@ -80,7 +80,7 @@ async def test_render_is_blocked_before_approval_without_calling_voice() -> None
         title="승인 전 일기",
         paragraphs=["하나", "둘", "셋"],
         summary="본문",
-        narration_script="대본",
+        content="일기 본문",
         emotion_tags=[],
         evidence_input_ids=[],
     )
@@ -101,7 +101,7 @@ async def test_approved_render_reaches_voice_stub_and_surfaces_not_implemented()
         title="승인된 일기",
         paragraphs=["하나", "둘", "셋"],
         summary="본문",
-        narration_script="대본",
+        content="일기 본문",
         emotion_tags=[],
         evidence_input_ids=[],
         approved=True,

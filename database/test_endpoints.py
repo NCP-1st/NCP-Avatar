@@ -69,7 +69,7 @@ async def run_integration_tests():
             session_id="session_1",
             title="Sunny Thursday",
             summary="A bright and sunny day.",
-            script="Thursday afternoon was nice.",
+            content="Thursday afternoon was nice.",
             emotion_tags=["happy", "calm"],
             approved=True,
         )
