@@ -2,81 +2,49 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
+from sqlalchemy import create_engine
 from sqlalchemy import pool
 
 from alembic import context
 
-# Add project root to sys.path to allow imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from database.models import Base
 from database.conn.db import DATABASE_URL, user
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Override the database URL dynamically using the configuration
-# Fallback to SQLite for schema autogeneration if no MySQL user is specified
+# sqlalchemy.url을 config에 쓰지 않고 파이썬 변수로만 들고 있는다 (비밀번호의 %가
+# configparser 보간 문법과 충돌하는 것을 피하기 위함)
 if not user:
     sync_url = "sqlite:///database/migrations/local_migration.db"
 else:
-    sync_url = DATABASE_URL.replace("mysql+aiomysql", "mysql+pymysql")
-config.set_main_option("sqlalchemy.url", sync_url)
+    sync_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql+psycopg2")
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=sync_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # engine_from_config(config...) 대신 create_engine(sync_url)로 직접 생성 —
+    # config 파서를 거치지 않으므로 URL에 %가 있어도 안전하다.
+    connectable = create_engine(sync_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
-
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 

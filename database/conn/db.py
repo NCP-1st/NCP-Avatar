@@ -1,4 +1,4 @@
-"""Database connection pool configuration for Naver Cloud DB for MySQL."""
+"""Async database connection and request-scoped session factory."""
 
 import logging
 from urllib.parse import quote_plus
@@ -12,16 +12,16 @@ config = load_config()
 db_config = config.get("db", {})
 
 host = db_config.get("host", "localhost")
-port = db_config.get("port", 3306)
+port = db_config.get("port", 5432)
 dbname = db_config.get("dbname", "mediary")
 user = db_config.get("user", "")
 password = db_config.get("password", "")
 
-# Build async connection URL
 escaped_user = quote_plus(user) if user else ""
 escaped_password = quote_plus(password) if password else ""
 
-DATABASE_URL = f"mysql+aiomysql://{escaped_user}:{escaped_password}@{host}:{port}/{dbname}?charset=utf8mb4"
+DATABASE_URL = f"postgresql+asyncpg://{escaped_user}:{escaped_password}@{host}:{port}/{dbname}"
+
 
 # Create async engine with pool configurations for managed Naver Cloud DB
 engine = create_async_engine(
@@ -44,7 +44,4 @@ AsyncSessionLocal = async_sessionmaker(
 async def get_db():
     """FastAPI dependency to yield an async database session."""
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
