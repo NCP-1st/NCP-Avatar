@@ -1,0 +1,11 @@
+{
+  "script_id": "script_001",
+  "diary_id": "test-diary-001",
+  "narration_text": "오늘은 오랜만에 친구와 성수동을 걸었습니다. 작은 카페에서 따뜻한 커피를 마시며 이야기를 나누었고, 편하게 마음을 나눌 친구가 있다는 사실이 참 고마웠습니다.",
+  "target_duration_seconds": 30,
+  "emotion": "기쁨",
+  "voice": {
+    "speaker": "vara",
+    "emotion_strength": "보통"
+  }
+}
