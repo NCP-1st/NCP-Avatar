@@ -139,3 +139,9 @@ class GenerationJobStatus(BaseModel):
     status: str
     result: dict | None = None
     error_code: str | None = None
+
+
+class ApproveDiaryRequest(BaseModel):
+    voice_id: str = Field(default="nara", min_length=1, max_length=50)
+    target_duration_seconds: int = Field(default=30, ge=10, le=120)
+    tone: str = Field(default="따뜻한 회상", min_length=1, max_length=50)

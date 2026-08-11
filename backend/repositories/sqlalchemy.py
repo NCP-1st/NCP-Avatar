@@ -2,11 +2,12 @@
 
 from datetime import date
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.diary_chatbot.models import DiaryVersion
 from backend.api.schemas import NormalizedInputItem
-from database.models import DiaryChat, DiaryInput, DiarySession, User
+from database.models import DiaryAudio, DiaryChat, DiaryInput, DiarySession, NarrationScript, User
 from database.models import DiaryVersion as ORMDiaryVersion
 
 
@@ -108,6 +109,150 @@ class SQLAlchemyDiaryRepository:
             evidence_input_ids=stored.evidence_input_ids or [],
             approved=stored.approved,
         )
+
+    async def approve_version(self, version_id: str) -> bool:
+        stored = await self.db.get(ORMDiaryVersion, version_id)
+        if stored is None:
+            return False
+        stored.approved = True
+        await self.db.commit()
+        return True
+
+    async def get_approved_version(
+        self, version_id: str
+    ) -> ORMDiaryVersion | None:
+        return await self.db.scalar(
+            select(ORMDiaryVersion).where(
+                ORMDiaryVersion.version_id == version_id,
+                ORMDiaryVersion.approved.is_(True),
+            )
+        )
+
+    async def get_narration_script(
+        self, diary_version_id: str
+    ) -> NarrationScript | None:
+        return await self.db.scalar(
+            select(NarrationScript).where(
+                NarrationScript.diary_version_id == diary_version_id
+            )
+        )
+
+    async def start_narration_script(
+        self,
+        *,
+        script_id: str,
+        diary_version_id: str,
+        tone: str,
+        target_duration_seconds: int,
+        llm_model: str,
+    ) -> NarrationScript:
+        script = await self.get_narration_script(diary_version_id)
+        if script is None:
+            script = NarrationScript(
+                script_id=script_id,
+                diary_version_id=diary_version_id,
+                tone=tone,
+                target_duration_seconds=target_duration_seconds,
+                status="processing",
+                llm_model=llm_model,
+            )
+            self.db.add(script)
+        else:
+            script.status = "processing"
+            script.error_code = None
+            script.tone = tone
+            script.target_duration_seconds = target_duration_seconds
+            script.llm_model = llm_model
+        await self.db.commit()
+        return script
+
+    async def complete_narration_script(
+        self,
+        script_id: str,
+        *,
+        narration_text: str,
+        emotion: str,
+    ) -> NarrationScript:
+        script = await self.db.get(NarrationScript, script_id)
+        if script is None:
+            raise LookupError("narration script not found")
+        script.narration_text = narration_text
+        script.emotion = emotion
+        script.status = "completed"
+        script.error_code = None
+        await self.db.commit()
+        return script
+
+    async def fail_narration_script(self, script_id: str, error_code: str) -> None:
+        script = await self.db.get(NarrationScript, script_id)
+        if script is not None:
+            script.status = "failed"
+            script.error_code = error_code
+            await self.db.commit()
+
+    async def start_diary_audio(
+        self,
+        *,
+        audio_id: str,
+        script_id: str,
+        voice_id: str,
+    ) -> DiaryAudio:
+        audio = DiaryAudio(
+            audio_id=audio_id,
+            script_id=script_id,
+            voice_id=voice_id,
+            status="processing",
+        )
+        self.db.add(audio)
+        await self.db.commit()
+        return audio
+
+    async def get_completed_diary_audio(
+        self,
+        *,
+        script_id: str,
+        voice_id: str,
+    ) -> DiaryAudio | None:
+        return await self.db.scalar(
+            select(DiaryAudio)
+            .where(
+                DiaryAudio.script_id == script_id,
+                DiaryAudio.voice_id == voice_id,
+                DiaryAudio.status == "completed",
+            )
+            .order_by(DiaryAudio.created_at.desc())
+            .limit(1)
+        )
+
+    async def complete_diary_audio(
+        self,
+        audio_id: str,
+        *,
+        object_key: str | None,
+        audio_url: str,
+        audio_hash: str,
+        audio_size: int,
+        audio_mime_type: str,
+    ) -> DiaryAudio:
+        audio = await self.db.get(DiaryAudio, audio_id)
+        if audio is None:
+            raise LookupError("diary audio not found")
+        audio.status = "completed"
+        audio.object_key = object_key
+        audio.audio_url = audio_url
+        audio.audio_hash = audio_hash
+        audio.audio_size = audio_size
+        audio.audio_mime_type = audio_mime_type
+        audio.error_code = None
+        await self.db.commit()
+        return audio
+
+    async def fail_diary_audio(self, audio_id: str, error_code: str) -> None:
+        audio = await self.db.get(DiaryAudio, audio_id)
+        if audio is not None:
+            audio.status = "failed"
+            audio.error_code = error_code
+            await self.db.commit()
 
     async def _ensure_user(self, user_id: str) -> None:
         if await self.db.get(User, user_id) is None:

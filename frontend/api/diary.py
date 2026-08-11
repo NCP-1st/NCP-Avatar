@@ -79,5 +79,23 @@ def request_generation(session_id: str) -> dict:
     return _request("POST", f"/diary/{session_id}/generate")
 
 
+def approve_diary_version(
+    version_id: str,
+    *,
+    voice_id: str = "nara",
+    target_duration_seconds: int = 30,
+    tone: str = "따뜻한 회상",
+) -> dict:
+    return _request(
+        "POST",
+        f"/diary/versions/{version_id}/approve",
+        json={
+            "voice_id": voice_id,
+            "target_duration_seconds": target_duration_seconds,
+            "tone": tone,
+        },
+    )
+
+
 def get_job(job_id: str) -> dict:
     return _request("GET", f"/diary/jobs/{job_id}")

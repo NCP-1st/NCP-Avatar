@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.schemas import (
     AddInputsRequest,
+    ApproveDiaryRequest,
     ConfirmTranscriptRequest,
     ConfirmTranscriptResponse,
     CreateSessionRequest,
@@ -24,9 +25,13 @@ from backend.dependencies import (
     diary_states,
     generation_jobs,
     generation_tasks,
+    get_diary_media_orchestrator,
     get_diary_orchestrator,
     get_pipeline,
+    media_jobs,
+    media_tasks,
 )
+from backend.orchestration.diary_media import DiaryMediaOrchestrator
 from backend.orchestration.diary_orchestrator import DiaryOrchestrator
 from backend.orchestration.diary_pipeline import DiaryPipeline
 from backend.repositories.sqlalchemy import SQLAlchemyDiaryRepository
@@ -78,6 +83,36 @@ async def _run_generation_job(
         generation_jobs[job_id].update(status="completed", result=version.model_dump())
     except Exception as exc:
         generation_jobs[job_id].update(status="failed", error_code=type(exc).__name__)
+
+
+async def _run_media_job(
+    job_id: str,
+    *,
+    version_id: str,
+    voice_id: str,
+    target_duration_seconds: int,
+    tone: str,
+    orchestrator: DiaryMediaOrchestrator,
+) -> None:
+    media_jobs[job_id]["status"] = "processing"
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await orchestrator.run(
+                version_id=version_id,
+                voice_id=voice_id,
+                target_duration_seconds=target_duration_seconds,
+                tone=tone,
+                repository=SQLAlchemyDiaryRepository(db),
+            )
+        media_jobs[job_id].update(
+            status="completed",
+            result=result.model_dump(),
+        )
+    except Exception as exc:
+        media_jobs[job_id].update(
+            status="failed",
+            error_code=type(exc).__name__,
+        )
 
 
 @router.post("/{session_id}/inputs", response_model=PreprocessResult)
@@ -265,9 +300,49 @@ async def generate_diary(
     return GenerationJobResponse(job_id=job_id, status="queued")
 
 
+@router.post(
+    "/versions/{version_id}/approve",
+    response_model=GenerationJobResponse,
+    status_code=202,
+)
+async def approve_diary_and_generate_media(
+    version_id: str,
+    request: ApproveDiaryRequest,
+    media_orchestrator: DiaryMediaOrchestrator = Depends(
+        get_diary_media_orchestrator
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> GenerationJobResponse:
+    repository = SQLAlchemyDiaryRepository(db)
+    approved = await repository.approve_version(version_id)
+    if not approved:
+        raise HTTPException(status_code=404, detail="diary version not found")
+
+    job_id = str(uuid4())
+    media_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "result": None,
+        "error_code": None,
+    }
+    task = asyncio.create_task(
+        _run_media_job(
+            job_id,
+            version_id=version_id,
+            voice_id=request.voice_id,
+            target_duration_seconds=request.target_duration_seconds,
+            tone=request.tone,
+            orchestrator=media_orchestrator,
+        )
+    )
+    media_tasks.add(task)
+    task.add_done_callback(media_tasks.discard)
+    return GenerationJobResponse(job_id=job_id, status="queued")
+
+
 @router.get("/jobs/{job_id}", response_model=GenerationJobStatus)
 def get_generation_job(job_id: str) -> GenerationJobStatus:
-    job = generation_jobs.get(job_id)
+    job = generation_jobs.get(job_id) or media_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="generation job not found")
     return GenerationJobStatus.model_validate(job)

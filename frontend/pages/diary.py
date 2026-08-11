@@ -4,6 +4,7 @@ import time
 import streamlit as st
 
 from api.diary import (
+    approve_diary_version,
     create_session,
     confirm_transcript,
     get_job,
@@ -12,7 +13,6 @@ from api.diary import (
     send_message,
     upload_files,
 )
-from api.script import generate_narration_script
 
 
 st.title("📔 일기 채팅")
@@ -280,10 +280,6 @@ if st.session_state.diary_ready and st.session_state.diary_result is None:
                     status = get_job(job["job_id"])
                     if status["status"] == "completed":
                         st.session_state.diary_result = status["result"]
-                        st.session_state.diary_script_result = generate_narration_script(
-                            st.session_state.diary_session_id,
-                            status["result"],
-                        )
                         break
                     if status["status"] == "failed":
                         raise RuntimeError(status.get("error_code") or "generation failed")
@@ -303,6 +299,27 @@ if st.session_state.diary_result:
     if result.get("emotion_tags"):
         st.caption("감정 태그: " + ", ".join(result["emotion_tags"]))
 
+    if not result.get("approved") and st.button("일기 승인 및 음성 생성", type="primary"):
+        try:
+            job = approve_diary_version(result["version_id"])
+            with st.spinner("대본과 음성을 생성하고 있습니다..."):
+                for _ in range(120):
+                    status = get_job(job["job_id"])
+                    if status["status"] == "completed":
+                        st.session_state.diary_script_result = status["result"]
+                        st.session_state.diary_result["approved"] = True
+                        break
+                    if status["status"] == "failed":
+                        raise RuntimeError(
+                            status.get("error_code") or "media generation failed"
+                        )
+                    time.sleep(0.5)
+                else:
+                    raise TimeoutError("대본·음성 생성 시간이 초과되었습니다.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"대본·음성 생성 실패: {exc}")
+
     script_result = st.session_state.diary_script_result
     if script_result:
         st.markdown("#### 🎙️ 나레이션 대본")
@@ -311,15 +328,7 @@ if st.session_state.diary_result:
             f"예상 길이: {script_result['target_duration_seconds']}초 · "
             f"대표 감정: {script_result['emotion']}"
         )
+        if script_result.get("audio_url"):
+            st.audio(script_result["audio_url"])
     else:
-        st.warning("나레이션 대본을 아직 생성하지 못했습니다.")
-        if st.button("나레이션 대본 다시 생성"):
-            try:
-                with st.spinner("나레이션 대본을 작성하고 있어요..."):
-                    st.session_state.diary_script_result = generate_narration_script(
-                        st.session_state.diary_session_id,
-                        result,
-                    )
-                st.rerun()
-            except Exception as exc:
-                st.error(f"나레이션 대본 생성 실패: {exc}")
+        st.info("일기를 승인하면 대본과 음성이 자동으로 생성됩니다.")

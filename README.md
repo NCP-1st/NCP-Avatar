@@ -137,7 +137,8 @@
 | DiaryChat | user_id, session_id, chat, datetime | 일기 챗봇 채팅 이력 |
 | DiaryInput | input_id, type, storage_url, transcript, captured_at | 원본 + 변환 결과 |
 | DiaryVersion | version_id, title, summary, content, emotion_tags, approved | AI 초안·사용자 수정 버전 |
-| NarrationScript | script_id, diary_version_id, narration_text, tone, target_duration_seconds, status, audio_url | 일기 승인 후 대본·음성 자동 생성 결과 |
+| NarrationScript | script_id, diary_version_id, narration_text, emotion, tone, target_duration_seconds, status | 승인된 일기의 나레이션 대본 생성 결과 |
+| DiaryAudio | audio_id, script_id, voice_id, status, object_key, audio_url, audio_hash, audio_size, audio_mime_type | TTS 생성 및 Object Storage 저장 결과 |
 | AvatarVideo | video_id, version_id, status, storage_url, duration | 렌더링 상태·결과 |
 | LocationMessage | message_id, latitude, longitude, radius, expires_at, audio_url | 위치 메시지·접근 조건 |
 | CounselSession | counsel_id, user_id, referenced_diary_ids, safety_level | 상담 대화·참조 기록 |
@@ -150,7 +151,7 @@
 | POST `/diary/sessions` | 일기 세션 생성 | 사용자·날짜 기준 중복 정책 |
 | POST `/diary/{id}/inputs` | 멀티모달 입력 업로드 | 파일별 검증 결과 반환 |
 | POST `/diary/{id}/generate` | 요약·대본 생성 요청 | 비동기 작업 ID 반환 |
-| PATCH `/diary/{id}/versions/{vid}` | 사용자 수정·승인 | 승인 후 영상 생성 가능 |
+| POST `/diary/versions/{vid}/approve` | 일기 승인 및 대본·음성 생성 | 비동기 작업 ID 반환 |
 | POST `/diary/{id}/render` | 아바타 영상 생성 | 멱등키로 중복 렌더링 방지 |
 | GET `/jobs/{job_id}` | 작업 상태 조회 | 진행률·실패 사유 포함 |
 | POST `/location-messages` | 위치 메시지 생성 | 좌표·반경·만료 검증 |
