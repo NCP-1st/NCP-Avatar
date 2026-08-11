@@ -58,6 +58,8 @@ st.markdown(
         border: 1px solid #d8e6f3;
         border-radius: 30px;
         padding: 30px;
+        margin-top: 18px;
+        margin-bottom: 28px;
         box-shadow: 0 18px 50px rgba(27, 59, 90, 0.06);
     }
     .hero-row {
@@ -99,11 +101,13 @@ st.markdown(
         gap: 8px;
     }
     .toolbar-card {
-        background: rgba(255,255,255,0.88);
+        background: rgba(255,255,255,0.9);
         border: 1px solid #d8e6f3;
         border-radius: 22px;
-        padding: 18px;
+        padding: 16px 18px 14px 18px;
+        margin-top: 12px;
         margin-bottom: 18px;
+        box-shadow: 0 8px 22px rgba(27, 59, 90, 0.04);
     }
     .section-label {
         font-size: 0.9rem;
@@ -117,6 +121,8 @@ st.markdown(
         border-radius: 20px;
         padding: 18px;
         min-height: 118px;
+        margin-top: 10px;
+        margin-bottom: 10px;
         box-shadow: 0 10px 24px rgba(27, 59, 90, 0.05);
     }
     .summary-card .top {
@@ -171,7 +177,24 @@ st.markdown(
         border: 1px solid #d8e6f3;
         border-radius: 22px;
         padding: 20px;
+        margin-top: 12px;
+        margin-bottom: 16px;
         box-shadow: 0 14px 32px rgba(27, 59, 90, 0.06);
+    }
+    .detail-shell {
+        background: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(255, 255, 255, 0.98));
+        border: 1px solid #d7e6f3;
+        border-radius: 24px;
+        padding: 20px;
+        margin-bottom: 18px;
+    }
+    .detail-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
     }
     .detail-title {
         display: flex;
@@ -192,6 +215,98 @@ st.markdown(
         margin-top: 0.9rem;
         margin-bottom: 0.5rem;
     }
+    .record-list-shell {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+        margin-bottom: 16px;
+    }
+    .record-list-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid #d9e6f2;
+        background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(245,249,255,0.96));
+        box-shadow: 0 6px 14px rgba(18, 50, 74, 0.025);
+        transition: all 0.22s ease;
+    }
+    .record-list-card:hover {
+        border-color: #9dc0df;
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(18, 50, 74, 0.08);
+        background: linear-gradient(180deg, rgba(245,250,255,1), rgba(235,244,255,1));
+    }
+    .record-list-card.is-selected {
+        border-color: #7aa9d6;
+        background: linear-gradient(180deg, rgba(232,243,255,1), rgba(245,250,255,1));
+        box-shadow: 0 0 0 3px rgba(110, 168, 216, 0.16), 0 12px 24px rgba(18, 50, 74, 0.08);
+    }
+    .record-list-main {
+        flex: 1;
+        min-width: 0;
+    }
+    .record-list-title {
+        font-size: 1rem;
+        font-weight: 800;
+        color: #14324A;
+        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .record-list-sub {
+        color: #5c7387;
+        font-size: 0.83rem;
+        line-height: 1.5;
+    }
+    .record-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        border: 1px solid transparent;
+        letter-spacing: 0.02em;
+    }
+    .record-badge.completed { background: linear-gradient(135deg, #eafcf0, #d5f2df); color: #166b46; border-color: #cfe9d8; box-shadow: inset 0 1px 0 rgba(255,255,255,0.7); }
+    .record-badge.processing { background: linear-gradient(135deg, #fff8e7, #f9ebc4); color: #8a5d00; border-color: #f1d494; box-shadow: inset 0 1px 0 rgba(255,255,255,0.7); }
+    .record-badge.failed { background: linear-gradient(135deg, #fff0ee, #f9d5d0); color: #a1362f; border-color: #f2c8c2; box-shadow: inset 0 1px 0 rgba(255,255,255,0.7); }
+    .record-badge.active { background: linear-gradient(135deg, #eef5ff, #dfeeff); color: #2d5e9a; border-color: #d5e5ff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.7); }
+    [data-testid="stPopover"] > button {
+        background: linear-gradient(180deg, #ffffff, #f4f9ff);
+        border: 1px solid #d7e3ee;
+        border-radius: 16px;
+        color: #14324A;
+        font-weight: 800;
+        box-shadow: 0 10px 20px rgba(19, 50, 74, 0.04);
+    }
+    [data-testid="stPopover"] > button:hover {
+        border-color: #accae3;
+        box-shadow: 0 12px 24px rgba(19, 50, 74, 0.08);
+    }
+    [data-testid="stPopover"] > div {
+        border-radius: 18px;
+        padding: 8px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(244,249,255,0.99));
+    }
+    div[role="dialog"] {
+        border-radius: 22px !important;
+        box-shadow: 0 18px 44px rgba(18, 50, 74, 0.12) !important;
+        border: 1px solid #d9e6f2 !important;
+        background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(244,249,255,0.99)) !important;
+    }
+    div[role="dialog"]:has(> div:empty) {
+        display: none !important;
+    }
+    div[role="dialog"] > div[data-testid="stDialog"] {
+        background: transparent !important;
+    }
     .metric-pill {
         display: inline-flex;
         align-items: center;
@@ -202,26 +317,27 @@ st.markdown(
         font-weight: 800;
         margin-right: 6px;
         margin-bottom: 6px;
+        letter-spacing: 0.01em;
     }
     .pill-completed {
-        background: #E0F6E9;
-        color: #1B6C45;
-        border: 1px solid #C6EAD5;
+        background: linear-gradient(135deg, #ebfdf0, #d5f2df);
+        color: #166b46;
+        border: 1px solid #cfe9d8;
     }
     .pill-processing {
-        background: #FFF4DF;
-        color: #9C6B05;
-        border: 1px solid #F7E2B8;
+        background: linear-gradient(135deg, #fff7e7, #f9e7ba);
+        color: #8a5d00;
+        border: 1px solid #f1d596;
     }
     .pill-failed {
-        background: #FDE9E7;
-        color: #A63831;
-        border: 1px solid #F4CBC6;
+        background: linear-gradient(135deg, #fff0ee, #f9d5d0);
+        color: #a1362f;
+        border: 1px solid #f2c8c2;
     }
     .pill-active {
-        background: #EAF2FF;
-        color: #2E5B9A;
-        border: 1px solid #D3E2FB;
+        background: linear-gradient(135deg, #eef5ff, #dfeeff);
+        color: #2d5e9a;
+        border: 1px solid #d5e5ff;
     }
     .emotion-badge {
         display: inline-flex;
@@ -254,19 +370,56 @@ st.markdown(
         width: 100%;
         min-height: 132px;
         border-radius: 20px;
-        border: 1px solid #D8E5EF;
+        border: 1px solid #d8e5ef;
         background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246,250,255,0.98) 100%);
         color: #14324A;
         font-weight: 800;
         font-size: 0.97rem;
         line-height: 1.45;
-        padding: 16px 10px;
+        padding: 14px 12px;
+        margin: 4px 0 10px 0;
         box-shadow: 0 10px 22px rgba(18, 50, 74, 0.045);
+        transition: all 0.18s ease;
+        text-align: left;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-start;
+        white-space: normal;
+    }
+    div.stButton > button[kind="primary"] {
+        border: 2px solid #bfe5c9 !important;
+        box-shadow: 0 0 0 3px rgba(191, 229, 201, 0.45), 0 10px 22px rgba(18, 50, 74, 0.08) !important;
+        background: linear-gradient(180deg, rgba(250, 255, 251, 1) 0%, rgba(239, 247, 242, 1) 100%) !important;
+        color: #14324A !important;
+    }
+    div.stButton > button[kind="secondary"] {
+        border: 1px solid #d8e5ef !important;
+        background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246,250,255,0.98) 100%) !important;
+        color: #14324A !important;
     }
     div.stButton > button:hover {
-        border-color: #8DB1CE;
+        border-color: #c5d9ed !important;
         box-shadow: 0 14px 28px rgba(18, 50, 74, 0.08);
         transform: translateY(-2px);
+    }
+    div.stButton > button:focus {
+        box-shadow: 0 0 0 3px rgba(76, 132, 182, 0.18);
+        outline: none;
+    }
+    .calendar-target-marker {
+        display: block;
+        width: 100%;
+        height: 0;
+    }
+    .calendar-target-marker.calendar-focus-flash {
+        animation: calendarFocusPulse 1.6s ease-in-out 1;
+    }
+    @keyframes calendarFocusPulse {
+        0% { box-shadow: 0 0 0 rgba(61, 122, 184, 0); }
+        30% { box-shadow: 0 0 0 6px rgba(61, 122, 184, 0.18); }
+        70% { box-shadow: 0 0 0 12px rgba(75, 179, 200, 0.12); }
+        100% { box-shadow: 0 0 0 rgba(61, 122, 184, 0); }
     }
     </style>
     """,
@@ -304,6 +457,14 @@ STATUS_META = {
     "failed": ("실패", "pill-failed", "warning"),
 }
 
+SUMMARY_FILTERS = {
+    "all": ("전체기록", None),
+    "completed": ("완료", "completed"),
+    "processing": ("처리 중", "processing"),
+    "failed": ("실패", "failed"),
+    "approved": ("승인 완료", "approved"),
+}
+
 LOCATION_PRESETS = {
     "직접 입력": None,
     "서울시청": (37.5665, 126.9780),
@@ -320,10 +481,34 @@ def format_status(status: str) -> tuple[str, str, str]:
     return STATUS_META.get(status, ("알 수 없음", "pill-active", "grid"))
 
 
-def render_summary_card(label: str, value: int, caption: str, icon_name: str) -> None:
+def render_summary_card(
+    label: str,
+    value: int,
+    caption: str,
+    icon_name: str,
+    filter_key: str,
+    active_filter: str,
+) -> None:
+    is_active = filter_key == active_filter
+    card_style = "background: linear-gradient(180deg,#f9fbff,#eef5ff); border: 1px solid #cfe1f2;" if is_active else ""
+    button_label = f"{label}\n{value}"
+    clicked = st.button(
+        button_label,
+        key=f"summary_{filter_key}",
+        help=caption,
+        use_container_width=True,
+    )
+    if clicked:
+        st.session_state["summary_filter"] = filter_key
+        st.session_state["scroll_to_record"] = True
+    if is_active:
+        st.markdown(
+            "<style>div[data-testid='stButton'] > button:focus { box-shadow: 0 0 0 3px rgba(89, 140, 204, 0.2); }</style>",
+            unsafe_allow_html=True,
+        )
     st.markdown(
         f"""
-        <div class="summary-card">
+        <div class="summary-card" style="{card_style}">
             <div class="top">
                 <div class="summary-label">{label}</div>
                 {svg_icon(icon_name, size=20, stroke="#4F6579")}
@@ -374,6 +559,14 @@ def get_preview_line(entry: dict[str, Any] | None) -> str:
     return "기록 있음"
 
 
+def filter_entries_by_summary(entries: list[dict[str, Any]], summary_filter: str) -> list[dict[str, Any]]:
+    if summary_filter == "all":
+        return entries
+    if summary_filter == "approved":
+        return [entry for entry in entries if entry.get("approved") is True]
+    return [entry for entry in entries if entry.get("status") == summary_filter]
+
+
 def detect_asset_label(asset_type: str) -> str:
     return {
         "image": "이미지",
@@ -394,27 +587,28 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
     @st.dialog(entry["diary_date"], width="large")
     def _dialog() -> None:
         status_label, status_class, status_icon = format_status(entry["status"])
+        st.markdown('<div class="detail-shell">', unsafe_allow_html=True)
         st.markdown(
-            f'<div class="detail-panel"><div class="detail-title">{svg_icon("calendar", size=20, stroke="#14324A")}<span>{entry.get("title") or "제목 없는 기록"}</span></div></div>',
+            f"<div class='detail-header'><div class='detail-title'>{svg_icon('calendar', size=20, stroke='#14324A')}<span>{entry.get('title') or '제목 없는 기록'}</span></div><div><span class='metric-pill {status_class}'>{svg_icon(status_icon, size=14, stroke='currentColor')}<span>{status_label}</span></span></div></div>",
             unsafe_allow_html=True,
         )
-        st.markdown(
-            f"<span class='metric-pill {status_class}'>{svg_icon(status_icon, size=14, stroke='currentColor')}<span>{status_label}</span></span>",
-            unsafe_allow_html=True,
-        )
-        if entry.get("approved"):
-            st.markdown(
-                f"<span class='metric-pill pill-completed'>{svg_icon('check', size=14, stroke='currentColor')}<span>승인 완료</span></span>",
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f"<span class='metric-pill pill-processing'>{svg_icon('clock', size=14, stroke='currentColor')}<span>미승인 초안</span></span>",
-                unsafe_allow_html=True,
-            )
-
-        if entry.get("location_name"):
-            st.caption(f"위치: {entry['location_name']}")
+        meta_cols = st.columns([1.6, 1.0, 1.0], gap="small")
+        with meta_cols[0]:
+            if entry.get("approved"):
+                st.markdown(
+                    f"<span class='metric-pill pill-completed'>{svg_icon('check', size=14, stroke='currentColor')}<span>승인 완료</span></span>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<span class='metric-pill pill-processing'>{svg_icon('clock', size=14, stroke='currentColor')}<span>미승인 초안</span></span>",
+                    unsafe_allow_html=True,
+                )
+        with meta_cols[1]:
+            if entry.get("location_name"):
+                st.caption(f"위치: {entry['location_name']}")
+        with meta_cols[2]:
+            st.caption(f"작성일: {entry.get('diary_date') or '미기록'}")
 
         st.markdown(
             f"<div class='section-title'>{svg_icon('sparkle', size=16, stroke='#14324A')}<span>감정 태그</span></div>",
@@ -498,11 +692,13 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
             st.info("아바타 영상 생성 대기 중입니다.")
         else:
             st.caption("연결된 영상이 없습니다.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     _dialog()
 
 
 def render_calendar_grid(year: int, month: int, entries_map: dict[date, dict[str, Any]]) -> None:
+    selected_date = st.session_state.get("selected_date")
     week_headers = ["일", "월", "화", "수", "목", "금", "토"]
     header_cols = st.columns(7, gap="small")
     for idx, header in enumerate(week_headers):
@@ -535,15 +731,33 @@ def render_calendar_grid(year: int, month: int, entries_map: dict[date, dict[str
                 emotion_label = format_emotion_label(emotion_tags[0]) if emotion_tags else "감정 없음"
                 preview_line = get_preview_line(entry)
                 label = f"{current_day}\n{status_label}\n{preview_line}"
-                help_text = f"{emotion_label} · 클릭해서 상세 보기"
+                help_text = f"{emotion_label} · 기록 있음 · 클릭해서 상세 보기"
             else:
-                label = f"{current_day}\n기록 없음\n새 기록 대기"
+                label = f"{current_day}\n기록 없음"
                 help_text = "이 날짜에는 아직 기록이 없습니다."
+
+            button_key = f"calendar_{current_date.isoformat()}"
+            target_marker = "calendar-focus-flash" if selected_date == current_date else ""
+            cols[weekday].markdown(
+                f"<div id='calendar-target-{current_date.isoformat()}' class='calendar-target-marker {target_marker}'></div>",
+                unsafe_allow_html=True,
+            )
+            if entry:
+                cols[weekday].markdown(
+                    "<style>button[kind='primary'] { color: #12314a !important; }</style>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                cols[weekday].markdown(
+                    "<style>button[kind='primary'] { color: #7a8c9a !important; }</style>",
+                    unsafe_allow_html=True,
+                )
 
             if cols[weekday].button(
                 label,
-                key=f"calendar_{current_date.isoformat()}",
+                key=button_key,
                 help=help_text,
+                type="primary" if entry else "secondary",
             ):
                 st.session_state["selected_date"] = current_date
                 st.session_state["selected_entry"] = entry
@@ -553,18 +767,15 @@ def render_calendar_grid(year: int, month: int, entries_map: dict[date, dict[str
 
 
 def render_today_panel(entry: dict[str, Any] | None, selected_date: date) -> None:
+    if not entry:
+        st.info("선택한 날짜에는 아직 저장된 일기 기록이 없습니다.")
+        return
+
     st.markdown('<div class="detail-panel">', unsafe_allow_html=True)
     st.markdown(
         f"<div class='detail-title'>{svg_icon('calendar', size=18, stroke='#14324A')}<span>{selected_date.strftime('%Y년 %m월 %d일')} 빠른 보기</span></div>",
         unsafe_allow_html=True,
     )
-    if not entry:
-        st.markdown(
-            "<div class='empty-state'>선택한 날짜에 아직 저장된 일기 기록이 없습니다.</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
 
     status_label, status_class, status_icon = format_status(entry["status"])
     st.markdown(
@@ -578,10 +789,13 @@ def render_today_panel(entry: dict[str, Any] | None, selected_date: date) -> Non
         )
 
     st.write("")
-    st.markdown(f"**{entry.get('title') or '제목 없는 기록'}**")
+    st.markdown(
+        f"<div style='font-size:1.2rem; font-weight:900; background:linear-gradient(90deg,#173d5e,#4d90c9,#5bb0c1); -webkit-background-clip:text; background-clip:text; color:transparent; margin-bottom:0.5rem;'>{entry.get('title') or '제목 없는 기록'}</div>",
+        unsafe_allow_html=True,
+    )
     render_emotion_badges(entry.get("emotion_tags"))
     st.markdown(
-        f"<div class='quick-summary'>{(entry.get('summary') or '요약 없음')[:130]}{'…' if entry.get('summary') and len(entry['summary']) > 130 else ''}</div>",
+        f"<div class='quick-summary' style='color:#34526d; font-weight:600;'>{(entry.get('summary') or '요약 없음')[:130]}{'…' if entry.get('summary') and len(entry['summary']) > 130 else ''}</div>",
         unsafe_allow_html=True,
     )
 
@@ -599,13 +813,9 @@ st.markdown(
         <div>
             <div class="hero-title">나의 일기 캘린더</div>
             <div class="hero-subtitle">
-                월 선택은 달력 피커로 간단하게, 날짜별 기록은 넓은 카드로 한눈에 확인할 수 있게 정리했습니다.
-                날짜를 누르면 팝업에서 일기 요약, 입력 산출물, 버전 기록까지 바로 조회할 수 있습니다.
+                월 선택은 팝업에서 바로, 날짜별 기록은 넓은 카드로 한눈에 확인할 수 있게 정리했습니다.
+                목록에서 일기 내역을 선택하면 상세 내용을 바로 확인할 수 있습니다.
             </div>
-        </div>
-        <div class="hero-chip">
-            {svg_icon("calendar", size=18, stroke="#36536B")}
-            <span>월간 기록 탐색</span>
         </div>
     </div>
     """,
@@ -621,30 +831,48 @@ if "open_dialog" not in st.session_state:
     st.session_state["open_dialog"] = False
 if "calendar_anchor_date" not in st.session_state:
     st.session_state["calendar_anchor_date"] = today.replace(day=1)
+if "summary_filter" not in st.session_state:
+    st.session_state["summary_filter"] = "all"
+if "scroll_to_record" not in st.session_state:
+    st.session_state["scroll_to_record"] = False
 
 st.markdown('<div class="toolbar-card">', unsafe_allow_html=True)
-toolbar_cols = st.columns([1.7, 1.2, 1.3, 1.0], gap="small")
+toolbar_cols = st.columns([1.8, 1.4, 1.3, 1.1], gap="small")
 with toolbar_cols[0]:
     st.markdown(
-        f"<div class='section-label'>{icon_text('calendar', '조회 월 선택')}</div>",
+        f"<div class='section-label'>{icon_text('calendar', '월간 기록 탐색')}</div>",
         unsafe_allow_html=True,
     )
-    selected_anchor = st.date_input(
-        "조회 월 선택",
-        value=st.session_state["calendar_anchor_date"],
-        label_visibility="collapsed",
-        format="YYYY.MM.DD",
+    with st.popover("월간 기록 탐색"):
+        year_options = list(range(2024, 2036))
+        month_options = list(range(1, 13))
+        selected_year = st.selectbox("년도", options=year_options, index=year_options.index(st.session_state["calendar_anchor_date"].year), key="calendar_year_select")
+        selected_month = st.selectbox("월", options=month_options, index=month_options.index(st.session_state["calendar_anchor_date"].month), key="calendar_month_select")
+        if st.button("조회 적용", type="primary", use_container_width=True):
+            st.session_state["calendar_anchor_date"] = date(selected_year, selected_month, 1)
+            st.session_state["selected_date"] = date(selected_year, selected_month, 1)
+            st.session_state["selected_entry"] = None
+            st.session_state["scroll_to_record"] = True
+            st.rerun()
+    st.markdown(
+        f"<div class='hero-chip' style='justify-content:center; width:100%;'>{st.session_state['calendar_anchor_date'].year}년 {st.session_state['calendar_anchor_date'].month}월</div>",
+        unsafe_allow_html=True,
     )
-    if isinstance(selected_anchor, datetime):
-        selected_anchor = selected_anchor.date()
-    st.session_state["calendar_anchor_date"] = selected_anchor
 
+selected_anchor = st.session_state["calendar_anchor_date"]
 with toolbar_cols[1]:
     st.markdown(
         f"<div class='section-label'>{icon_text('file-text', '사용자 ID')}</div>",
         unsafe_allow_html=True,
     )
-    user_id = st.text_input("사용자 ID", value="test_user_1", label_visibility="collapsed")
+    user_id = st.text_input(
+        "사용자 ID",
+        value="streamlit-test-user",
+        help="캘린더가 조회할 일기 세션 사용자 ID를 입력하세요.",
+        label_visibility="collapsed",
+    )
+    if not user_id.strip():
+        user_id = "streamlit-test-user"
 
 with toolbar_cols[2]:
     st.markdown(
@@ -750,7 +978,7 @@ with st.spinner("캘린더 데이터를 불러오는 중입니다..."):
 
 if api_error:
     st.error(api_error)
-    entries: list[dict[str, Any]] = []
+    entries = []
     summary = {
         "total_entries": 0,
         "completed_entries": 0,
@@ -762,24 +990,86 @@ else:
     entries = api_result.get("entries", []) if api_result else []
     summary = api_result.get("summary", {}) if api_result else {}
 
+summary_filter = st.session_state.get("summary_filter", "all")
+filtered_entries = filter_entries_by_summary(entries, summary_filter)
+
 summary_cols = st.columns(5, gap="small")
 summary_items = [
-    ("전체 기록", summary.get("total_entries", 0), "이 달에 조회 가능한 일기 기록 수", "grid"),
-    ("완료", summary.get("completed_entries", 0), "작성과 생성이 끝난 기록", "check"),
-    ("처리 중", summary.get("processing_entries", 0), "아직 생성 또는 정리 중인 기록", "clock"),
-    ("실패", summary.get("failed_entries", 0), "재시도가 필요한 기록", "warning"),
-    ("승인 완료", summary.get("approved_entries", 0), "사용자가 최종 승인한 기록", "sparkle"),
+    ("전체 기록", summary.get("total_entries", 0), "이 달에 조회 가능한 일기 기록 수", "grid", "all"),
+    ("완료", summary.get("completed_entries", 0), "작성과 생성이 끝난 기록", "check", "completed"),
+    ("처리 중", summary.get("processing_entries", 0), "아직 생성 또는 정리 중인 기록", "clock", "processing"),
+    ("실패", summary.get("failed_entries", 0), "재시도가 필요한 기록", "warning", "failed"),
+    ("승인 완료", summary.get("approved_entries", 0), "사용자가 최종 승인한 기록", "sparkle", "approved"),
 ]
-for idx, (label, value, caption, icon_name) in enumerate(summary_items):
+for idx, (label, value, caption, icon_name, filter_key) in enumerate(summary_items):
     with summary_cols[idx]:
-        render_summary_card(label, int(value), caption, icon_name)
+        render_summary_card(label, int(value), caption, icon_name, filter_key, summary_filter)
 
-entries_map = build_entries_map(entries)
-selected_date = st.session_state["selected_date"]
-if start_date <= selected_date <= end_date:
-    selected_entry = entries_map.get(selected_date)
+entries_map = build_entries_map(filtered_entries)
+selected_date = st.session_state.get("selected_date", today)
+selected_entry = None
+if filtered_entries:
+    first_matching_date = date.fromisoformat(filtered_entries[0]["diary_date"])
+    if start_date <= selected_date <= end_date:
+        selected_entry = entries_map.get(selected_date)
+    if selected_entry is None:
+        selected_entry = filtered_entries[0]
+        selected_date = first_matching_date
+        st.session_state["selected_date"] = selected_date
+    elif summary_filter != "all":
+        st.session_state["selected_date"] = selected_date
 else:
-    selected_entry = st.session_state.get("selected_entry")
+    st.session_state["selected_date"] = selected_date
+
+if summary_filter != "all" and filtered_entries:
+    st.caption(f"{SUMMARY_FILTERS[summary_filter][0]}에 해당하는 기록 {len(filtered_entries)}건")
+    for entry in filtered_entries[:3]:
+        entry_date = entry.get("diary_date")
+        entry_title = entry.get("title") or "제목 없는 기록"
+        st.markdown(f"- {entry_date}: {entry_title}")
+
+month_entries = filtered_entries
+if month_entries:
+    st.markdown(
+        f"<div class='section-label'>{icon_text('file-text', f'{selected_year}년 {selected_month}월 기록 목록')}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="record-list-shell">', unsafe_allow_html=True)
+    for entry in month_entries:
+        entry_date = date.fromisoformat(entry["diary_date"])
+        status_label, _, _ = format_status(entry["status"])
+        title = entry.get("title") or "제목 없는 기록"
+        summary_text = entry.get("summary") or "요약 내용이 아직 없습니다."
+        status_key = entry.get("status") or "active"
+        status_class = "completed" if status_key == "completed" else "processing" if status_key == "processing" else "failed" if status_key == "failed" else "active"
+        is_selected = selected_entry is not None and entry_date == date.fromisoformat(selected_entry["diary_date"])
+        card_key = f"month_entry_{entry['diary_date']}_{entry.get('id', 'noid')}"
+        card_html = f"""
+        <div class="record-list-card {'is-selected' if is_selected else ''}" onclick="document.getElementById('{card_key}').click(); return false;" style="cursor:pointer;">
+            <div class="record-list-main">
+                <div class="record-list-title">{entry_date.day}일 · {title}</div>
+                <div class="record-list-sub">{summary_text[:70]}{'…' if len(summary_text) > 70 else ''}</div>
+            </div>
+            <span class="record-badge {status_class}">{status_label}</span>
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
+        if st.button(
+            "상세 보기",
+            key=card_key,
+            use_container_width=False,
+            type="secondary",
+            help=f"{entry_date} 기록 상세 보기",
+        ):
+            st.session_state["selected_date"] = entry_date
+            st.session_state["selected_entry"] = entry
+            st.session_state["open_dialog"] = True
+    st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.markdown(
+        "<div class='empty-state'>이 달에는 저장된 일기 기록이 없습니다. 다른 월을 조회해보세요.</div>",
+        unsafe_allow_html=True,
+    )
 
 st.write("")
 wide_col, side_col = st.columns([5.8, 1.9], gap="medium")
@@ -787,6 +1077,24 @@ with wide_col:
     render_calendar_grid(selected_year, selected_month, entries_map)
 with side_col:
     render_today_panel(selected_entry, selected_date)
+
+if st.session_state.get("scroll_to_record") and selected_date:
+    st.components.v1.html(
+        f"""
+        <script>
+        setTimeout(() => {{
+            const target = document.getElementById('calendar-target-{selected_date.isoformat()}');
+            if (target) {{
+                target.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                target.classList.add('calendar-focus-flash');
+                setTimeout(() => target.classList.remove('calendar-focus-flash'), 1800);
+            }}
+        }}, 160);
+        </script>
+        """,
+        height=0,
+    )
+    st.session_state["scroll_to_record"] = False
 
 st.markdown("</div>", unsafe_allow_html=True)
 
