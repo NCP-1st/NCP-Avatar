@@ -79,5 +79,19 @@ def request_generation(session_id: str) -> dict:
     return _request("POST", f"/diary/{session_id}/generate")
 
 
+def start_new_version_chat(session_id: str) -> dict:
+    return _request("POST", f"/diary/{session_id}/versions/new-chat")
+
+
+def list_versions(session_id: str) -> dict:
+    return _request("GET", f"/diary/{session_id}/versions")
+
+
+def approve_version(session_id: str, version_id: str) -> dict:
+    return _request(
+        "POST", f"/diary/{session_id}/versions/{version_id}/approve"
+    )
+
+
 def get_job(job_id: str) -> dict:
     return _request("GET", f"/diary/jobs/{job_id}")

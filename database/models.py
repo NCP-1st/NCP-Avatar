@@ -43,7 +43,6 @@ class User(Base):
     sessions: Mapped[List["DiarySession"]] = relationship(
         "DiarySession", back_populates="user", cascade="all, delete-orphan"
     )
-    chats: Mapped[List["DiaryChat"]] = relationship("DiaryChat", back_populates="user")
     location_messages: Mapped[List["LocationMessage"]] = relationship(
         "LocationMessage", back_populates="user", cascade="all, delete-orphan"
     )
@@ -77,9 +76,6 @@ class DiarySession(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="sessions")
-    chats: Mapped[List["DiaryChat"]] = relationship(
-        "DiaryChat", back_populates="session", cascade="all, delete-orphan"
-    )
     inputs: Mapped[List["DiaryInput"]] = relationship(
         "DiaryInput", back_populates="session", cascade="all, delete-orphan"
     )
@@ -89,21 +85,6 @@ class DiarySession(Base):
     location_messages: Mapped[List["LocationMessage"]] = relationship(
         "LocationMessage", back_populates="session"
     )
-
-
-class DiaryChat(Base):
-    __tablename__ = "diary_chats"
-
-    chat_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
-    session_id: Mapped[str] = mapped_column(String(50), ForeignKey("diary_sessions.session_id", ondelete="CASCADE"), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user, assistant
-    chat: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-    # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="chats")
-    session: Mapped["DiarySession"] = relationship("DiarySession", back_populates="chats")
 
 
 class DiaryInput(Base):

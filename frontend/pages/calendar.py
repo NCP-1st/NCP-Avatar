@@ -452,12 +452,15 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
                     )
                     if asset.get("transcript"):
                         st.write(asset["transcript"])
-                    if asset["type"] == "image":
-                        st.image(asset["storage_url"], use_container_width=True)
-                    elif asset["type"] == "voice":
-                        st.audio(asset["storage_url"])
-                    else:
-                        st.link_button("원본 보기", asset["storage_url"])
+                    storage_url = asset.get("storage_url")
+                    if storage_url and asset["type"] in {"image", "photo"}:
+                        st.image(storage_url, use_container_width=True)
+                    elif storage_url and asset["type"] in {"voice", "audio"}:
+                        st.audio(storage_url)
+                    elif storage_url:
+                        st.link_button("원본 보기", storage_url)
+                    elif asset["type"] in {"image", "photo", "voice", "audio"}:
+                        st.caption("원본 파일은 현재 세션에서만 임시로 사용됐어요.")
         else:
             st.markdown(
                 "<div class='empty-state'>아직 연결된 입력 산출물이 없습니다. 추후 일기 채팅 결과가 저장되면 이곳에서 날짜별로 바로 조회할 수 있습니다.</div>",

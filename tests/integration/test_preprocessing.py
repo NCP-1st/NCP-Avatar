@@ -58,6 +58,12 @@ def create_session() -> str:
     return response.json()["session_id"]
 
 
+def test_same_day_reuses_the_diary_session() -> None:
+    first = create_session()
+    second = create_session()
+    assert first == second
+
+
 def test_health_and_multimodal_preprocessing() -> None:
     assert client.get("/health").json() == {"status": "ok"}
     session_id = create_session()
@@ -134,6 +140,9 @@ def test_openapi_exposes_only_current_scope() -> None:
         "/diary/{session_id}/inputs/{input_id}/transcript",
         "/diary/{session_id}/chat",
         "/diary/{session_id}/generate",
+        "/diary/{session_id}/versions",
+        "/diary/{session_id}/versions/new-chat",
+        "/diary/{session_id}/versions/{version_id}/approve",
         "/diary/{session_id}/review",
         "/diary/jobs/{job_id}",
         "/",

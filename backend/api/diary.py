@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.agents.diary_chatbot.models import WorkflowStage
 from backend.api.schemas import (
     AddInputsRequest,
     ConfirmTranscriptRequest,
@@ -14,9 +15,13 @@ from backend.api.schemas import (
     DiaryReviewRequest,
     DiaryReviewResponse,
     DiarySession,
+    DiaryVersionListResponse,
+    DiaryVersionResponse,
     GenerationJobResponse,
     GenerationJobStatus,
     InputType,
+    NormalizedInputItem,
+    NewVersionChatResponse,
     PreprocessResult,
     ProcessingStatus,
 )
@@ -27,7 +32,10 @@ from backend.dependencies import (
     get_diary_orchestrator,
     get_pipeline,
 )
-from backend.orchestration.diary_orchestrator import DiaryOrchestrator
+from backend.orchestration.diary_orchestrator import (
+    MAX_DIARY_VERSIONS,
+    DiaryOrchestrator,
+)
 from backend.orchestration.diary_pipeline import DiaryPipeline
 from backend.repositories.sqlalchemy import SQLAlchemyDiaryRepository
 from database.conn.db import AsyncSessionLocal, get_db
@@ -46,10 +54,23 @@ async def create_session(
     pipeline: DiaryPipeline = Depends(get_pipeline),
     db: AsyncSession = Depends(get_db),
 ) -> DiarySession:
+    repo = SQLAlchemyDiaryRepository(db)
+    existing_session_id = await repo.find_existing_session(
+        user_id=request.user_id, diary_date=request.diary_date
+    )
+    if existing_session_id is not None:
+        if existing_session_id not in pipeline.repo.sessions:
+            pipeline.repo.sessions[existing_session_id] = DiarySession(
+                session_id=existing_session_id,
+                user_id=request.user_id,
+                diary_date=request.diary_date,
+            )
+        return pipeline.repo.sessions[existing_session_id]
+
     session = pipeline.create_session(request.user_id, request.diary_date)
     diary_states.pop(session.session_id, None)
     try:
-        await SQLAlchemyDiaryRepository(db).save_session(
+        await repo.save_session(
             user_id=request.user_id,
             diary_date=request.diary_date,
             session_id=session.session_id,
@@ -142,6 +163,17 @@ async def chat(
 ) -> DiaryChatResponse:
     require_session(session_id, pipeline)
     state = diary_states.setdefault(session_id, orchestrator.start_session(session_id))
+    if state.stage in {
+        WorkflowStage.DRAFTED,
+        WorkflowStage.APPROVED,
+        WorkflowStage.RENDERING,
+        WorkflowStage.COMPLETED,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="이 일기 채팅은 종료되었습니다. '새 일기 쓰기'로 새 채팅을 시작해 주세요.",
+        )
+
     requested_ids = set(request.input_ids)
     available = {
         item.input_id: item
@@ -171,12 +203,14 @@ async def chat(
         for input_id, item in available.items()
         if item.type is InputType.AUDIO and item.transcript
     }
+    text_input_id = f"turn-{uuid4()}" if request.message.strip() else None
     try:
         await orchestrator.handle_turn(
             state,
             message=request.message,
             image_urls=image_urls,
             audio_transcripts=audio_transcripts,
+            text_input_id=text_input_id,
         )
     except Exception as exc:
         raise HTTPException(
@@ -186,19 +220,23 @@ async def chat(
                 "error_code": type(exc).__name__,
             },
         ) from exc
+
     if state.latest_turn is None:
         raise HTTPException(status_code=409, detail="이미 일기 생성 준비가 완료되었습니다.")
-    session = pipeline.repo.sessions[session_id]
+
     persistence = SQLAlchemyDiaryRepository(db)
-    assistant_text = state.latest_turn.reaction
-    if state.latest_turn.follow_up_questions:
-        assistant_text += "\n" + state.latest_turn.follow_up_questions[0]
-    await persistence.save_chat_turn(
-        session_id=session_id,
-        user_id=session.user_id,
-        user_chat=request.message,
-        assistant_chat=assistant_text,
-    )
+    if text_input_id is not None:
+        await persistence.save_inputs(
+            session_id=session_id,
+            items=[
+                NormalizedInputItem(
+                    input_id=text_input_id,
+                    type=InputType.TEXT,
+                    transcript=request.message.strip(),
+                    status=ProcessingStatus.OK,
+                )
+            ],
+        )
     return DiaryChatResponse(
         session_id=session_id,
         stage=state.stage.value,
@@ -263,6 +301,89 @@ async def generate_diary(
     generation_tasks.add(task)
     task.add_done_callback(generation_tasks.discard)
     return GenerationJobResponse(job_id=job_id, status="queued")
+
+
+@router.get(
+    "/{session_id}/versions",
+    response_model=DiaryVersionListResponse,
+)
+async def list_diary_versions(
+    session_id: str,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    db: AsyncSession = Depends(get_db),
+) -> DiaryVersionListResponse:
+    require_session(session_id, pipeline)
+    versions = await SQLAlchemyDiaryRepository(db).get_versions(session_id)
+    approved = any(version.approved for version in versions)
+    return DiaryVersionListResponse(
+        session_id=session_id,
+        versions=[
+            DiaryVersionResponse.model_validate(version.model_dump())
+            for version in versions
+        ],
+        max_versions=MAX_DIARY_VERSIONS,
+        can_create_new_version=len(versions) < MAX_DIARY_VERSIONS and not approved,
+    )
+
+
+@router.post(
+    "/{session_id}/versions/new-chat",
+    response_model=NewVersionChatResponse,
+)
+async def start_new_version_chat(
+    session_id: str,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    orchestrator: DiaryOrchestrator = Depends(get_diary_orchestrator),
+    db: AsyncSession = Depends(get_db),
+) -> NewVersionChatResponse:
+    require_session(session_id, pipeline)
+    versions = await SQLAlchemyDiaryRepository(db).get_versions(session_id)
+    if any(version.approved for version in versions):
+        raise HTTPException(status_code=409, detail="이미 오늘의 일기로 확정되었습니다.")
+    if len(versions) >= MAX_DIARY_VERSIONS:
+        raise HTTPException(
+            status_code=409,
+            detail="일기 후보는 최대 3개까지 만들 수 있습니다. 그중 하나를 선택해 주세요.",
+        )
+    state = diary_states.setdefault(session_id, orchestrator.start_session(session_id))
+    state.versions = versions
+    orchestrator.start_new_version_chat(state)
+    await SQLAlchemyDiaryRepository(db).mark_session_active(session_id)
+    return NewVersionChatResponse(session_id=session_id, stage=state.stage.value)
+
+
+@router.post(
+    "/{session_id}/versions/{version_id}/approve",
+    response_model=DiaryVersionResponse,
+)
+async def approve_diary_version(
+    session_id: str,
+    version_id: str,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    orchestrator: DiaryOrchestrator = Depends(get_diary_orchestrator),
+    db: AsyncSession = Depends(get_db),
+) -> DiaryVersionResponse:
+    require_session(session_id, pipeline)
+    repository = SQLAlchemyDiaryRepository(db)
+    try:
+        selected = await repository.finalize_session_versions(
+            session_id=session_id,
+            approved_version_id=version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    state = diary_states.get(session_id)
+    if state is not None:
+        in_memory = next(
+            (item for item in state.versions if item.version_id == version_id),
+            None,
+        )
+        if in_memory is not None and state.stage is WorkflowStage.DRAFTED:
+            selected = orchestrator.approve(state, in_memory)
+    return DiaryVersionResponse.model_validate(selected.model_dump())
 
 
 @router.get("/jobs/{job_id}", response_model=GenerationJobStatus)

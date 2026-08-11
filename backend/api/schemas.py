@@ -139,3 +139,27 @@ class GenerationJobStatus(BaseModel):
     status: str
     result: dict | None = None
     error_code: str | None = None
+
+
+class DiaryVersionResponse(BaseModel):
+    version_id: str
+    session_id: str
+    title: str
+    paragraphs: list[str]
+    summary: str
+    content: str
+    emotion_tags: list[str]
+    evidence_input_ids: list[str]
+    approved: bool
+
+
+class DiaryVersionListResponse(BaseModel):
+    session_id: str
+    versions: list[DiaryVersionResponse]
+    max_versions: int = 3
+    can_create_new_version: bool
+
+
+class NewVersionChatResponse(BaseModel):
+    session_id: str
+    stage: str
