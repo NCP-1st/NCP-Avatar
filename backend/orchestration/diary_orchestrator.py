@@ -63,8 +63,6 @@ class DiaryOrchestrator:
         return DiaryOrchestrationState(workflow=DiaryWorkflowState(session_id=session_id))
 
     def start_new_version_chat(self, state: DiaryOrchestrationState) -> None:
-        if any(version.approved for version in state.versions):
-            raise ValueError("이미 오늘의 일기로 확정된 버전이 있습니다.")
         if len(state.versions) >= MAX_DIARY_VERSIONS:
             raise ValueError("일기 후보는 최대 3개까지 만들 수 있습니다.")
         state.workflow = DiaryWorkflowState(session_id=state.session_id)
@@ -224,7 +222,8 @@ class DiaryOrchestrator:
             else item.model_copy(update={"approved": False})
             for item in state.versions
         ]
-        state.workflow.approve()
+        if state.workflow.stage is WorkflowStage.DRAFTED:
+            state.workflow.approve()
         return approved
 
     async def render(self, version: DiaryVersion, *, voice_id: str = "default") -> RenderResult:

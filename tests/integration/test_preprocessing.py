@@ -154,6 +154,7 @@ def test_openapi_exposes_only_current_scope() -> None:
         "/diary/{session_id}/versions",
         "/diary/{session_id}/versions/new-chat",
         "/diary/{session_id}/versions/{version_id}/approve",
+        "/diary/{session_id}/versions/{version_id}",
         "/diary/{session_id}/review",
         "/diary/jobs/{job_id}",
         "/",

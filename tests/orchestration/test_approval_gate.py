@@ -174,3 +174,22 @@ async def test_approving_one_version_unapproves_the_others() -> None:
     assert [item.version_id for item in state.versions if item.approved] == [
         second.version_id
     ]
+
+    changed = orchestrator.approve(state, first)
+    assert changed.approved is True
+    assert [item.version_id for item in state.versions if item.approved] == [
+        first.version_id
+    ]
+
+
+@pytest.mark.anyio
+async def test_approved_session_can_start_another_candidate_below_limit() -> None:
+    orchestrator = _orchestrator(generator=StubDiaryGenerator())
+    state = orchestrator.start_session("session-approved-regenerate")
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    first = await orchestrator.request_generation(state)
+    orchestrator.approve(state, first)
+
+    orchestrator.start_new_version_chat(state)
+
+    assert state.stage is WorkflowStage.COLLECTING

@@ -93,13 +93,24 @@ async def test_diary_workflow_is_persisted() -> None:
         assert [item.version_id for item in versions if item.approved] == [
             "version-db-test-2"
         ]
-        with pytest.raises(PermissionError, match="이미 확정"):
-            await repository.finalize_session_versions(
-                session_id="session-db-test",
-                approved_version_id="version-db-test-3",
-            )
-        await db.rollback()
+        changed = await repository.finalize_session_versions(
+            session_id="session-db-test",
+            approved_version_id="version-db-test-3",
+        )
+        assert changed.approved is True
+        versions = await repository.get_versions("session-db-test")
+        assert [item.version_id for item in versions if item.approved] == [
+            "version-db-test-3"
+        ]
+
+        await repository.delete_version(
+            session_id="session-db-test",
+            version_id="version-db-test-3",
+        )
+        versions = await repository.get_versions("session-db-test")
+        assert len(versions) == 2
+        assert not any(item.approved for item in versions)
         await db.refresh(stored_session)
-        assert stored_session.status == "completed"
+        assert stored_session.status == "awaiting_approval"
 
     await engine.dispose()

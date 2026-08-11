@@ -112,6 +112,27 @@ class SQLAlchemyDiaryRepository:
             return None
         return self._to_domain(stored)
 
+    async def delete_version(self, *, session_id: str, version_id: str) -> None:
+        stored = await self.db.get(ORMDiaryVersion, version_id)
+        if stored is None or stored.session_id != session_id:
+            raise ValueError("삭제할 일기 후보가 이 세션에 없습니다.")
+
+        was_approved = stored.approved
+        await self.db.delete(stored)
+        await self.db.flush()
+
+        session = await self.db.get(DiarySession, session_id)
+        if session is not None:
+            remaining_result = await self.db.execute(
+                select(func.count())
+                .select_from(ORMDiaryVersion)
+                .where(ORMDiaryVersion.session_id == session_id)
+            )
+            remaining_count = remaining_result.scalar_one()
+            if was_approved:
+                session.status = "awaiting_approval" if remaining_count else "active"
+        await self.db.commit()
+
     async def finalize_session_versions(
         self, *, session_id: str, approved_version_id: str
     ) -> DiaryVersion:
@@ -127,11 +148,6 @@ class SQLAlchemyDiaryRepository:
         )
         if selected is None:
             raise ValueError("선택한 일기 버전이 이 세션에 없습니다.")
-        already_approved = next(
-            (item for item in stored_versions if item.approved), None
-        )
-        if already_approved is not None and already_approved.version_id != approved_version_id:
-            raise PermissionError("오늘의 일기는 이미 확정되어 변경할 수 없습니다.")
         for item in stored_versions:
             item.approved = item.version_id == approved_version_id
         session = await self.db.get(DiarySession, session_id)

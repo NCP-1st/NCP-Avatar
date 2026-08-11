@@ -5,6 +5,7 @@ import streamlit as st
 
 from api.diary import (
     approve_version,
+    delete_version,
     create_session,
     confirm_transcript,
     get_job,
@@ -74,7 +75,15 @@ def wait_for_generation(job: dict) -> dict:
     raise TimeoutError("일기 생성 시간이 초과됐습니다.")
 
 
-@st.dialog("오늘의 일기 후보", width="large")
+def close_version_picker() -> None:
+    st.session_state.diary_show_versions = False
+
+
+@st.dialog(
+    "오늘의 일기 후보",
+    width="large",
+    on_dismiss=close_version_picker,
+)
 def show_version_picker() -> None:
     version_data = list_versions(st.session_state.diary_session_id)
     versions = version_data["versions"]
@@ -91,35 +100,54 @@ def show_version_picker() -> None:
             label = f"후보 {index} · {version['title']}"
             if version["approved"]:
                 label += "  ✅ 확정됨"
-            st.markdown(f"### {label}")
+            title_col, delete_col = st.columns([8, 1])
+            title_col.markdown(f"### {label}")
+            if delete_col.button(
+                "✕",
+                key=f"delete-{version['version_id']}",
+                help="이 일기 후보 삭제",
+            ):
+                delete_version(
+                    st.session_state.diary_session_id,
+                    version["version_id"],
+                )
+                if (
+                    st.session_state.diary_result
+                    and st.session_state.diary_result.get("version_id")
+                    == version["version_id"]
+                ):
+                    st.session_state.diary_result = None
+                    st.session_state.diary_script_result = None
+                st.rerun()
             for paragraph in version["paragraphs"]:
                 st.write(paragraph)
             if version.get("emotion_tags"):
                 st.caption("감정 태그: " + ", ".join(version["emotion_tags"]))
-            if not any(item["approved"] for item in versions):
-                if st.button(
-                    "이 일기를 오늘의 일기로 확정",
-                    key=f"approve-{version['version_id']}",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    selected = approve_version(
-                        st.session_state.diary_session_id,
-                        version["version_id"],
+            if st.button(
+                "확정된 일기" if version["approved"] else "이 일기를 오늘의 일기로 확정",
+                key=f"approve-{version['version_id']}",
+                type="primary" if not version["approved"] else "secondary",
+                disabled=version["approved"],
+                use_container_width=True,
+            ):
+                selected = approve_version(
+                    st.session_state.diary_session_id,
+                    version["version_id"],
+                )
+                st.session_state.diary_result = selected
+                with st.spinner("확정한 일기의 나레이션 대본을 만들고 있어요..."):
+                    st.session_state.diary_script_result = generate_narration_script(
+                        selected["version_id"], selected
                     )
-                    st.session_state.diary_result = selected
-                    with st.spinner("확정한 일기의 나레이션 대본을 만들고 있어요..."):
-                        st.session_state.diary_script_result = generate_narration_script(
-                            selected["version_id"], selected
-                        )
-                    st.session_state.diary_show_versions = False
-                    st.rerun()
+                st.rerun()
 
-    if not any(item["approved"] for item in versions):
-        if version_data["can_create_new_version"]:
-            st.caption("다른 후보는 팝업을 닫고 ‘새 일기 쓰기’에서 새 채팅으로 작성해 주세요.")
-        else:
-            st.info("일기 후보 3개를 모두 만들었어요. 그중 하나를 선택해 주세요.")
+    if version_data["can_create_new_version"]:
+        st.caption("다른 후보는 팝업을 닫고 ‘새 일기 쓰기’에서 새 채팅으로 작성해 주세요.")
+    else:
+        st.info(
+            "일기는 최대 3개까지 생성할 수 있어요. "
+            "일기 후보 중 하나를 삭제하고 다시 써보세요."
+        )
 
 action_col, versions_col = st.columns(2)
 if action_col.button("＋ 새 일기 쓰기", use_container_width=True):
