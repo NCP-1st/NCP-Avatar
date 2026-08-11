@@ -8,6 +8,7 @@ class StoredObject:
     content_hash: str
     size_bytes: int
     mime_type: str
+    object_key: str | None = None
 
 
 class StorageAdapter(ABC):

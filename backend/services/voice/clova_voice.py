@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from backend.services.voice.base import VoiceAdapter
+
 
 EMOTION_SUPPORTED_SPEAKERS = (
     "nara",
@@ -130,3 +132,27 @@ async def synthesize_speech(
     finally:
         if owns_client:
             await client.aclose()
+
+
+class ClovaVoiceAdapter(VoiceAdapter):
+    """Adapter contract used by the diary media orchestration cycle."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self._config = config
+
+    async def synthesize(
+        self,
+        script: str,
+        *,
+        voice_id: str,
+        emotion: str | None = None,
+    ) -> bytes:
+        selected_emotion = EMOTION_VALUES.get(emotion or "중립", 0)
+        if voice_id == "nara" and emotion == "분노":
+            selected_emotion = EMOTION_VALUES["중립"]
+        return await synthesize_speech(
+            script,
+            self._config,
+            speaker=voice_id,
+            emotion=selected_emotion,
+        )

@@ -42,8 +42,9 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
         "object_storage": {
             "access_key": env.get("NCP_ACCESS_KEY", ""),
             "secret_key": env.get("NCP_SECRET_KEY", ""),
-            "bucket": env.get("NCP_OBJECT_STORAGE_BUCKET", "mediary-dev"),
-            "endpoint": env.get("NCP_OBJECT_STORAGE_ENDPOINT", "https://kr.object.ncloudstorage.com"),
+            "bucket": env.get("NCP_OBJECT_STORAGE_BUCKET") or "mediary-dev",
+            "endpoint": env.get("NCP_OBJECT_STORAGE_ENDPOINT") or "https://kr.object.ncloudstorage.com",
+            "region": env.get("NCP_OBJECT_STORAGE_REGION") or "kr-standard",
         },
         "db": {
             "host": env.get("DB_HOST", "localhost"),
