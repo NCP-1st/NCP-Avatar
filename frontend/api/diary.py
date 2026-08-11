@@ -93,5 +93,9 @@ def approve_version(session_id: str, version_id: str) -> dict:
     )
 
 
+def delete_version(session_id: str, version_id: str) -> dict:
+    return _request("DELETE", f"/diary/{session_id}/versions/{version_id}")
+
+
 def get_job(job_id: str) -> dict:
     return _request("GET", f"/diary/jobs/{job_id}")

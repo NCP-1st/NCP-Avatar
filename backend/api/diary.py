@@ -333,7 +333,6 @@ async def list_diary_versions(
 ) -> DiaryVersionListResponse:
     await require_session(session_id, pipeline, db)
     versions = await SQLAlchemyDiaryRepository(db).get_versions(session_id)
-    approved = any(version.approved for version in versions)
     return DiaryVersionListResponse(
         session_id=session_id,
         versions=[
@@ -341,7 +340,7 @@ async def list_diary_versions(
             for version in versions
         ],
         max_versions=MAX_DIARY_VERSIONS,
-        can_create_new_version=len(versions) < MAX_DIARY_VERSIONS and not approved,
+        can_create_new_version=len(versions) < MAX_DIARY_VERSIONS,
     )
 
 
@@ -357,18 +356,43 @@ async def start_new_version_chat(
 ) -> NewVersionChatResponse:
     await require_session(session_id, pipeline, db)
     versions = await SQLAlchemyDiaryRepository(db).get_versions(session_id)
-    if any(version.approved for version in versions):
-        raise HTTPException(status_code=409, detail="이미 오늘의 일기로 확정되었습니다.")
     if len(versions) >= MAX_DIARY_VERSIONS:
         raise HTTPException(
             status_code=409,
-            detail="일기 후보는 최대 3개까지 만들 수 있습니다. 그중 하나를 선택해 주세요.",
+            detail=(
+                "일기는 최대 3개까지 생성할 수 있어요. "
+                "일기 후보 중 하나를 삭제하고 다시 써보세요."
+            ),
         )
     state = diary_states.setdefault(session_id, orchestrator.start_session(session_id))
     state.versions = versions
     orchestrator.start_new_version_chat(state)
     await SQLAlchemyDiaryRepository(db).mark_session_active(session_id)
     return NewVersionChatResponse(session_id=session_id, stage=state.stage.value)
+
+
+@router.delete("/{session_id}/versions/{version_id}")
+async def delete_diary_version(
+    session_id: str,
+    version_id: str,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    await require_session(session_id, pipeline, db)
+    try:
+        await SQLAlchemyDiaryRepository(db).delete_version(
+            session_id=session_id,
+            version_id=version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    state = diary_states.get(session_id)
+    if state is not None:
+        state.versions = [
+            item for item in state.versions if item.version_id != version_id
+        ]
+    return {"deleted_version_id": version_id}
 
 
 @router.post(
