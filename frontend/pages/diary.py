@@ -12,6 +12,7 @@ from api.diary import (
     send_message,
     upload_files,
 )
+from api.script import generate_narration_script
 
 
 st.title("📔 일기 채팅")
@@ -26,6 +27,7 @@ def start_new_diary() -> None:
     st.session_state.diary_stage = "collecting"
     st.session_state.diary_review_summary = None
     st.session_state.diary_result = None
+    st.session_state.diary_script_result = None
     st.session_state.diary_pending_audio = None
     st.session_state.diary_audio_editing = False
 
@@ -49,6 +51,7 @@ st.session_state.setdefault("diary_stage", "collecting")
 st.session_state.setdefault("diary_review_summary", None)
 st.session_state.setdefault("diary_pending_audio", None)
 st.session_state.setdefault("diary_audio_editing", False)
+st.session_state.setdefault("diary_script_result", None)
 
 if st.button("＋ 새 일기 시작"):
     try:
@@ -272,11 +275,15 @@ if st.session_state.diary_ready and st.session_state.diary_result is None:
     if st.button("일기와 나레이션 대본 생성", type="primary"):
         try:
             job = request_generation(st.session_state.diary_session_id)
-            with st.spinner("HCX-007이 일기를 작성하고 있어요..."):
+            with st.spinner("HCX-007이 일기와 나레이션 대본을 작성하고 있어요..."):
                 for _ in range(60):
                     status = get_job(job["job_id"])
                     if status["status"] == "completed":
                         st.session_state.diary_result = status["result"]
+                        st.session_state.diary_script_result = generate_narration_script(
+                            st.session_state.diary_session_id,
+                            status["result"],
+                        )
                         break
                     if status["status"] == "failed":
                         raise RuntimeError(status.get("error_code") or "generation failed")
@@ -285,7 +292,7 @@ if st.session_state.diary_ready and st.session_state.diary_result is None:
                     raise TimeoutError("일기 생성 시간이 초과됐습니다.")
             st.rerun()
         except Exception as exc:
-            st.error(f"일기 생성 실패: {exc}")
+            st.error(f"일기 또는 나레이션 대본 생성 실패: {exc}")
 
 if st.session_state.diary_result:
     result = st.session_state.diary_result
@@ -295,3 +302,24 @@ if st.session_state.diary_result:
         st.write(paragraph)
     if result.get("emotion_tags"):
         st.caption("감정 태그: " + ", ".join(result["emotion_tags"]))
+
+    script_result = st.session_state.diary_script_result
+    if script_result:
+        st.markdown("#### 🎙️ 나레이션 대본")
+        st.write(script_result["narration_text"])
+        st.caption(
+            f"예상 길이: {script_result['target_duration_seconds']}초 · "
+            f"대표 감정: {script_result['emotion']}"
+        )
+    else:
+        st.warning("나레이션 대본을 아직 생성하지 못했습니다.")
+        if st.button("나레이션 대본 다시 생성"):
+            try:
+                with st.spinner("나레이션 대본을 작성하고 있어요..."):
+                    st.session_state.diary_script_result = generate_narration_script(
+                        st.session_state.diary_session_id,
+                        result,
+                    )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"나레이션 대본 생성 실패: {exc}")

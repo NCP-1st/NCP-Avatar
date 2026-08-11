@@ -50,6 +50,7 @@ logs/
 # --- Generated media (local tests) ---
 /backend/services/voice/output/
 /backend/services/video/output/
+/backend/agents/diary_chatbot/output/
 
 # --- Docs (local only) ---
 *.docx
