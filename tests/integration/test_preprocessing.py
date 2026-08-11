@@ -64,6 +64,17 @@ def test_same_day_reuses_the_diary_session() -> None:
     assert first == second
 
 
+def test_session_is_restored_from_db_after_memory_cache_is_cleared() -> None:
+    session_id = create_session()
+    repository.sessions.pop(session_id, None)
+
+    response = client.get(f"/diary/{session_id}/versions")
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == session_id
+    assert session_id in repository.sessions
+
+
 def test_health_and_multimodal_preprocessing() -> None:
     assert client.get("/health").json() == {"status": "ok"}
     session_id = create_session()
