@@ -407,7 +407,12 @@ class CounselFlow:
         notice: str | None,
         trace: CounselTrace,
     ) -> CounselReply:
-        """응답을 저장하고 반환한다."""
+        """응답을 저장하고 반환한다.
+
+        어시스턴트 턴과 트레이스는 1:1이고 여기서 같은 순간에 만들어지므로
+        한 번에 넘겨 같은 트랜잭션으로 남긴다. 저장소가 트레이스를 버려도
+        (인메모리 스텁) 상담은 그대로 동작한다.
+        """
         await self._store.append_turn(
             counsel_id=counsel_id,
             user_id=user_id,
@@ -416,6 +421,8 @@ class CounselFlow:
                 content=message,
                 stage=stage.value if stage else None,
             ),
+            trace=trace,
+            safety_level=safety_level.value,
         )
         return CounselReply(
             counsel_id=counsel_id,

@@ -7,6 +7,7 @@ from sqlalchemy import (
     String,
     Text,
     Boolean,
+    BigInteger,
     Integer,
     Float,
     Numeric,
@@ -17,8 +18,17 @@ from sqlalchemy import (
     Index,
     UniqueConstraint,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+# 운영은 PostgreSQL, 테스트는 SQLite 메모리 DB를 쓴다. JSONB와 BIGSERIAL은
+# PG에만 있으므로 방언별로 갈라 둔다 — 그렇지 않으면 SQLite에서 create_all이
+# 깨지고(JSONB 컴파일 불가), BIGINT PK는 자동증가가 되지 않는다.
+JSONB_ = JSON().with_variant(JSONB(), "postgresql")
+BIGINT_PK = BigInteger().with_variant(Integer(), "sqlite")
 
 
 class Base(DeclarativeBase):
@@ -214,20 +224,194 @@ class LocationMessage(Base):
 
 
 class CounselSession(Base):
+    """상담 세션 하나. 대화 턴·근거·트레이스의 부모.
+
+    - is_crisis      : store.mark_crisis / store.is_crisis 의 지속 저장소.
+                       한 번 켜지면 세션 내내 유지된다.
+    - safety_level   : 세션에서 도달한 가장 높은 등급의 롤업.
+                       턴별 등급은 counsel_turn_traces 에 있다.
+    - memory_*       : C-03 기억 제어 설정(사용자가 세션 단위로 조절).
+    - last_active_at : 세션 목록·비활성 만료 판단.
+    """
+
     __tablename__ = "counsel_sessions"
 
     counsel_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
-    referenced_diary_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # List of diary session IDs referenced
-    safety_level: Mapped[str] = mapped_column(String(20), default="safe")  # safe, restricted, crisis
+
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    is_crisis: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    safety_level: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="normal", default="normal"
+    )  # normal, caution, crisis
+
+    # C-03 기억 제어. MemoryScope(enabled/period_days/max_items) 지속 설정.
+    memory_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
+    memory_period_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("30"), default=30
+    )
+    memory_max_items: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("5"), default=5
+    )
+
+    # 세션 단위 참조 일기 롤업(빠른 조회). 정규 소스는 counsel_evidences.
+    referenced_diary_ids: Mapped[Optional[List[str]]] = mapped_column(JSONB_, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_counsel_sessions_user_active", "user_id", "last_active_at"),
+    )
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="counsel_sessions")
+    turns: Mapped[List["CounselTurn"]] = relationship(
+        "CounselTurn",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="CounselTurn.turn_id",
+    )
+
+
+class CounselTurn(Base):
+    """상담 대화 한 줄(턴).
+
+    - user_id 를 비정규화해 둔다. load_turns 가 counsel_id + user_id 로 소유권을
+      거른다 — 남의 counsel_id 로 대화를 읽어가는 걸 저장소가 막는다.
+    - stage 는 어시스턴트 턴에만 있다. _decide_stage 가 직전 어시스턴트 턴의
+      stage 를 읽으므로 반드시 저장한다.
+    """
+
+    __tablename__ = "counsel_turns"
+
+    turn_id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True, autoincrement=True)
+    counsel_id: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("counsel_sessions.counsel_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user, assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    stage: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # opening, exploring, caring, closing (assistant only)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_counsel_turns_counsel_turn", "counsel_id", "turn_id"),
+    )
+
+    # Relationships
+    session: Mapped["CounselSession"] = relationship("CounselSession", back_populates="turns")
+    trace: Mapped[Optional["CounselTurnTrace"]] = relationship(
+        "CounselTurnTrace",
+        back_populates="turn",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    evidences: Mapped[List["CounselEvidence"]] = relationship(
+        "CounselEvidence", back_populates="turn", cascade="all, delete-orphan"
+    )
+
+
+class CounselTurnTrace(Base):
+    """어시스턴트 턴 1건의 트레이스(관측·안전 감사). CounselTrace 스키마 대응.
+
+    어시스턴트 턴에만 존재하므로 counsel_turns 와 1:1(turn_id UNIQUE).
+    근거 문장·사용자 원문은 저장하지 않는다(emotion 은 라벨만, error_detail 은
+    사유 요약만). 사후 리뷰 큐는 result_code='crisis_redirect' 또는
+    safety_level='crisis' 로 조회한다.
+    """
+
+    __tablename__ = "counsel_turn_traces"
+
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True, autoincrement=True)
+    turn_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        ForeignKey("counsel_turns.turn_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    trace_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    model: Mapped[str] = mapped_column(String(50), nullable=False)
+    result_code: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # ok, crisis_redirect, guardrail_rewrite, guardrail_blocked, llm_failed
+    safety_level: Mapped[str] = mapped_column(String(20), nullable=False)  # normal, caution, crisis
+    stage: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    emotion: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # 대표 감정 라벨만
+
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    knowledge_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    ontology_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    event_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+
+    guardrail_hits: Mapped[Optional[List[str]]] = mapped_column(JSONB_, nullable=True)
+    stage_ms: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB_, nullable=True)
+    error_detail: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("turn_id", name="uq_counsel_trace_turn"),
+        Index("ix_counsel_traces_trace_id", "trace_id"),
+        Index("ix_counsel_traces_result_safety", "result_code", "safety_level"),
+    )
+
+    # Relationships
+    turn: Mapped["CounselTurn"] = relationship("CounselTurn", back_populates="trace")
+
+
+class CounselEvidence(Base):
+    """어시스턴트 답변이 근거로 든 일기(H-02, C-01).
+
+    diary_date 는 카드 표시용 스냅샷이다. 원본 일기가 지워져도 최소 근거는 남는다.
+    지금은 counsel_flow 에 일기 검색 갈래가 없어 비어 있다. 검색이 붙을 때 이
+    테이블에 쓰고, safety.review_past_claims 를 "검색 결과가 없을 때만" 걸도록
+    되돌린다.
+    """
+
+    __tablename__ = "counsel_evidences"
+
+    evidence_id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True, autoincrement=True)
+    turn_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        ForeignKey("counsel_turns.turn_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    diary_session_id: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        ForeignKey("diary_sessions.session_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    diary_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)  # 카드 스냅샷
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_counsel_evidences_turn", "turn_id"),
+    )
+
+    # Relationships
+    turn: Mapped["CounselTurn"] = relationship("CounselTurn", back_populates="evidences")
 
 
 class AgentLog(Base):

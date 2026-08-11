@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from backend.agents.counsel_chatbot.schemas import CounselTurn
+from backend.agents.counsel_chatbot.schemas import CounselTrace, CounselTurn
 from backend.api.schemas import DiarySession, NormalizedInputItem
 
 
@@ -40,8 +40,14 @@ class ConversationStore(Protocol):
         counsel_id: str,
         user_id: str,
         turn: CounselTurn,
+        trace: CounselTrace | None = None,
+        safety_level: str | None = None,
     ) -> None:
-        """대화 한 줄을 덧붙인다. 세션이 없으면 만든다."""
+        """대화 한 줄을 덧붙인다. 세션이 없으면 만든다.
+
+        `trace`와 `safety_level`은 어시스턴트 턴에만 온다. 관측·안전 감사용이라
+        저장소가 버려도 상담은 그대로 동작한다 — 필요한 저장소만 남기면 된다.
+        """
         ...
 
     async def mark_crisis(self, *, counsel_id: str, user_id: str) -> None:

@@ -1,7 +1,7 @@
 import asyncio
 from collections import defaultdict
 
-from backend.agents.counsel_chatbot.schemas import CounselTurn
+from backend.agents.counsel_chatbot.schemas import CounselTrace, CounselTurn
 from backend.api.schemas import DiarySession, NormalizedInputItem
 
 
@@ -47,7 +47,10 @@ class InMemoryConversationStore:
         counsel_id: str,
         user_id: str,
         turn: CounselTurn,
+        trace: CounselTrace | None = None,
+        safety_level: str | None = None,
     ) -> None:
+        # 트레이스는 받기만 하고 버린다. 스텁은 대화 이력만 들고 있으면 된다.
         async with self._lock:
             self._owners.setdefault(counsel_id, user_id)
             if self._owners[counsel_id] != user_id:

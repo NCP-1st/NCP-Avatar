@@ -2,12 +2,14 @@
 
 from datetime import date
 from typing import Optional
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.agents.counsel_chatbot.schemas import CounselTrace, CounselTurn
 from backend.agents.diary_chatbot.models import DiaryVersion
 from backend.api.schemas import NormalizedInputItem
-from database.models import DiaryInput, DiarySession, User
+from database.models import CounselSession, CounselTurnTrace, DiaryInput, DiarySession, User
+from database.models import CounselTurn as ORMCounselTurn
 from database.models import DiaryVersion as ORMDiaryVersion
 
 
@@ -180,3 +182,135 @@ class SQLAlchemyDiaryRepository:
         if session is not None:
             session.status = "active"
             await self.db.commit()
+
+# 세션 safety_level 은 "이 세션에서 도달한 가장 높은 등급"의 롤업이다.
+# 한 번 올라간 등급은 내려오지 않는다 — 사용자가 화제를 돌렸다고 해서
+# 위기 세션이 평범한 세션으로 되돌아가면 안 된다.
+_SAFETY_RANK = {"normal": 0, "caution": 1, "crisis": 2}
+
+
+class SQLAlchemyConversationStore:
+    """상담 대화 이력 저장소 (PostgreSQL).
+
+    인메모리 스텁과 달리 프로세스가 죽어도 이력이 남고, 워커가 여러 개여도
+    한 벌만 존재한다. 클라이언트가 이력을 들고 다니지 않으므로 이력 위조로
+    안전 규칙을 우회할 수 없다.
+
+    소유권 확인은 저장소의 책임이다: user_id 가 맞지 않으면 읽기는 빈 목록,
+    쓰기는 PermissionError.
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def load_turns(
+        self,
+        *,
+        counsel_id: str,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[CounselTurn]:
+        session = await self.db.get(CounselSession, counsel_id)
+        if session is not None and session.user_id != user_id:
+            return []  # 남의 counsel_id 를 찍어 대화를 읽어가려는 시도
+
+        rows = (
+            await self.db.execute(
+                select(ORMCounselTurn)
+                .where(ORMCounselTurn.counsel_id == counsel_id)
+                .order_by(desc(ORMCounselTurn.turn_id))
+                .limit(limit)
+            )
+        ).scalars().all()
+
+        # 최근 N개를 뽑되 흐름은 오래된 순으로 돌려준다.
+        return [
+            CounselTurn(role=row.role, content=row.content, stage=row.stage)
+            for row in reversed(rows)
+        ]
+
+    async def append_turn(
+        self,
+        *,
+        counsel_id: str,
+        user_id: str,
+        turn: CounselTurn,
+        trace: CounselTrace | None = None,
+        safety_level: str | None = None,
+    ) -> None:
+        """대화 한 줄을 덧붙인다. 세션이 없으면 만든다.
+
+        `trace` 가 오면 어시스턴트 턴과 같은 트랜잭션으로 트레이스를 남긴다.
+        턴과 트레이스는 1:1이고 같은 순간에 만들어지므로 따로 커밋하면
+        한쪽만 남을 수 있다.
+        """
+        session = await self._session_for_write(counsel_id, user_id)
+
+        orm_turn = ORMCounselTurn(
+            counsel_id=counsel_id,
+            user_id=user_id,
+            role=turn.role,
+            content=turn.content,
+            stage=turn.stage,
+        )
+        self.db.add(orm_turn)
+        session.last_active_at = func.now()
+
+        if safety_level is not None:
+            self._raise_safety(session, safety_level)
+
+        if trace is not None:
+            await self.db.flush()  # orm_turn.turn_id 확보
+            self.db.add(
+                CounselTurnTrace(
+                    turn_id=orm_turn.turn_id,
+                    trace_id=trace.trace_id,
+                    model=trace.model,
+                    result_code=trace.result_code,
+                    # 이번 턴의 등급이 있으면 그걸 쓴다. 세션 롤업은 이미
+                    # 올라가 있을 수 있어 턴별 감사에는 부정확하다.
+                    safety_level=safety_level or session.safety_level,
+                    stage=trace.stage,
+                    emotion=trace.emotion,
+                    latency_ms=trace.latency_ms,
+                    knowledge_count=trace.knowledge_count,
+                    ontology_count=trace.ontology_count,
+                    event_count=trace.event_count,
+                    guardrail_hits=trace.guardrail_hits,
+                    stage_ms=trace.stage_ms,
+                    error_detail=trace.error_detail,
+                )
+            )
+
+        await self.db.commit()
+
+    async def mark_crisis(self, *, counsel_id: str, user_id: str) -> None:
+        session = await self._session_for_write(counsel_id, user_id)
+        session.is_crisis = True
+        session.safety_level = "crisis"
+        await self.db.commit()
+
+    async def is_crisis(self, *, counsel_id: str, user_id: str) -> bool:
+        session = await self.db.get(CounselSession, counsel_id)
+        return bool(session and session.user_id == user_id and session.is_crisis)
+
+    async def _session_for_write(self, counsel_id: str, user_id: str) -> CounselSession:
+        """쓰기 대상 세션을 가져온다. 없으면 만들고, 남의 것이면 거절한다."""
+        session = await self.db.get(CounselSession, counsel_id)
+        if session is None:
+            # counsel_turns.user_id 가 users 를 참조하므로 사용자 행이 먼저 있어야 한다.
+            if await self.db.get(User, user_id) is None:
+                self.db.add(User(user_id=user_id))
+                await self.db.flush()
+            session = CounselSession(counsel_id=counsel_id, user_id=user_id)
+            self.db.add(session)
+            await self.db.flush()
+        elif session.user_id != user_id:
+            raise PermissionError("다른 사용자의 상담 세션에는 쓸 수 없습니다")
+        return session
+
+    @staticmethod
+    def _raise_safety(session: CounselSession, level: str) -> None:
+        current = _SAFETY_RANK.get(session.safety_level, 0)
+        if _SAFETY_RANK.get(level, 0) > current:
+            session.safety_level = level
