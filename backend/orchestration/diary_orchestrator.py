@@ -10,11 +10,13 @@ from backend.agents.diary_chatbot.models import (
     TurnResponse,
     WorkflowStage,
 )
-from backend.orchestration.diary_workflow import DiaryWorkflowState
 from backend.agents.diary_chatbot.sanitize import FALLBACK_QUESTIONS
+from backend.orchestration.diary_workflow import DiaryWorkflowState
 from backend.services.avatar import AvatarAdapter
 from backend.services.storage import StorageAdapter
 from backend.services.voice import VoiceAdapter
+
+MAX_DIARY_VERSIONS = 3
 
 
 @dataclass
@@ -60,6 +62,17 @@ class DiaryOrchestrator:
     def start_session(self, session_id: str) -> DiaryOrchestrationState:
         return DiaryOrchestrationState(workflow=DiaryWorkflowState(session_id=session_id))
 
+    def start_new_version_chat(self, state: DiaryOrchestrationState) -> None:
+        if any(version.approved for version in state.versions):
+            raise ValueError("이미 오늘의 일기로 확정된 버전이 있습니다.")
+        if len(state.versions) >= MAX_DIARY_VERSIONS:
+            raise ValueError("일기 후보는 최대 3개까지 만들 수 있습니다.")
+        state.workflow = DiaryWorkflowState(session_id=state.session_id)
+        state.text_inputs = {}
+        state.latest_turn = None
+        state.review_summary = None
+        state.correction_notes = []
+
     async def handle_turn(
         self,
         state: DiaryOrchestrationState,
@@ -67,6 +80,7 @@ class DiaryOrchestrator:
         *,
         image_urls: dict[str, str] | None = None,
         audio_transcripts: dict[str, str] | None = None,
+        text_input_id: str | None = None,
     ) -> DiaryOrchestrationState:
         if state.stage in {
             WorkflowStage.READY_TO_GENERATE,
@@ -74,27 +88,30 @@ class DiaryOrchestrator:
             WorkflowStage.AWAITING_MORE_CONTENT,
         }:
             return state
+
         review_input_stage = state.stage
         if message.strip():
-            input_id = f"turn-{len(state.text_inputs) + 1}"
+            input_id = text_input_id or f"turn-{len(state.text_inputs) + 1}"
             state.text_inputs[input_id] = message.strip()
             if review_input_stage is WorkflowStage.AWAITING_CORRECTION:
                 state.correction_notes.append(message.strip())
         state.text_inputs.update(audio_transcripts or {})
-        result = await self._chat.interpret(MultimodalContext(
-            session_id=state.session_id,
-            user_message=message.strip() or None,
-            text_inputs=dict(state.text_inputs),
-            image_urls=image_urls or {},
-            audio_transcripts=audio_transcripts or {},
-            prior_events=[
-                event
-                for turn in state.workflow.turns
-                for event in turn.events
-            ],
-            prior_reactions=[turn.response.reaction for turn in state.workflow.turns],
-            skipped_fields=sorted(state.workflow.skipped_fields),
-        ))
+        result = await self._chat.interpret(
+            MultimodalContext(
+                session_id=state.session_id,
+                user_message=message.strip() or None,
+                text_inputs=dict(state.text_inputs),
+                image_urls=image_urls or {},
+                audio_transcripts=audio_transcripts or {},
+                prior_events=[
+                    event
+                    for turn in state.workflow.turns
+                    for event in turn.events
+                ],
+                prior_reactions=[turn.response.reaction for turn in state.workflow.turns],
+                skipped_fields=sorted(state.workflow.skipped_fields),
+            )
+        )
         state.latest_turn = result
         if review_input_stage is WorkflowStage.AWAITING_CORRECTION:
             state.workflow.turns.append(result)
@@ -117,12 +134,14 @@ class DiaryOrchestrator:
         if next_field is None:
             state.review_summary = self.build_review_summary(state)
             return
-        state.latest_turn = state.latest_turn.model_copy(update={
-            "response": TurnResponse(
-                reaction="알겠어요. 해당 정보는 건너뛸게요.",
-                question=FALLBACK_QUESTIONS[next_field],
-            )
-        })
+        state.latest_turn = state.latest_turn.model_copy(
+            update={
+                "response": TurnResponse(
+                    reaction="알겠어요. 해당 정보는 건너뛸게요.",
+                    question=FALLBACK_QUESTIONS[next_field],
+                )
+            }
+        )
 
     def review_summary(self, state: DiaryOrchestrationState, *, correct: bool) -> None:
         state.workflow.confirm_summary(correct=correct)
@@ -186,34 +205,25 @@ class DiaryOrchestrator:
             source_texts=dict(state.text_inputs),
         )
         version = DiaryVersion(
-            **draft.model_dump(), version_id=str(uuid4()), session_id=state.session_id, approved=False
+            **draft.model_dump(),
+            version_id=str(uuid4()),
+            session_id=state.session_id,
+            approved=False,
         )
         state.versions.append(version)
         state.workflow.mark_drafted()
-        return version
-
-    async def reject_and_regenerate(
-        self, state: DiaryOrchestrationState, rejected_version: DiaryVersion
-    ) -> DiaryVersion:
-        if not self._generation:
-            raise NotImplementedError("diary generation adapter is not configured")
-        if rejected_version.approved or state.stage is not WorkflowStage.DRAFTED:
-            raise ValueError("only an unapproved draft can be regenerated")
-        draft = await self._generation.generate(
-            state.workflow.turns,
-            source_texts=dict(state.text_inputs),
-        )
-        version = DiaryVersion(
-            **draft.model_dump(), version_id=str(uuid4()), session_id=state.session_id, approved=False
-        )
-        state.versions.append(version)
         return version
 
     def approve(self, state: DiaryOrchestrationState, version: DiaryVersion) -> DiaryVersion:
         if version.session_id != state.session_id:
             raise ValueError("version does not belong to this session")
         approved = version.model_copy(update={"approved": True})
-        state.versions = [approved if item.version_id == version.version_id else item for item in state.versions]
+        state.versions = [
+            approved
+            if item.version_id == version.version_id
+            else item.model_copy(update={"approved": False})
+            for item in state.versions
+        ]
         state.workflow.approve()
         return approved
 

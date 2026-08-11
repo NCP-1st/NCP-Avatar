@@ -4,12 +4,15 @@ import time
 import streamlit as st
 
 from api.diary import (
+    approve_version,
     create_session,
     confirm_transcript,
     get_job,
+    list_versions,
     request_generation,
     review_information,
     send_message,
+    start_new_version_chat,
     upload_files,
 )
 from api.script import generate_narration_script
@@ -21,13 +24,17 @@ st.caption("HCX-005와 대화한 뒤 HCX-007이 오늘의 일기를 정리합니
 
 def start_new_diary() -> None:
     session = create_session("streamlit-test-user", date.today())
+    stored_versions = list_versions(session["session_id"])["versions"]
     st.session_state.diary_session_id = session["session_id"]
     st.session_state.diary_messages = []
     st.session_state.diary_ready = False
-    st.session_state.diary_stage = "collecting"
+    st.session_state.diary_stage = "drafted" if stored_versions else "collecting"
     st.session_state.diary_review_summary = None
+    # 저장된 후보는 페이지 진입 시 바로 노출하지 않고 후보 팝업에서만 보여준다.
     st.session_state.diary_result = None
     st.session_state.diary_script_result = None
+    st.session_state.diary_versions = stored_versions
+    st.session_state.diary_show_versions = False
     st.session_state.diary_pending_audio = None
     st.session_state.diary_audio_editing = False
 
@@ -52,13 +59,87 @@ st.session_state.setdefault("diary_review_summary", None)
 st.session_state.setdefault("diary_pending_audio", None)
 st.session_state.setdefault("diary_audio_editing", False)
 st.session_state.setdefault("diary_script_result", None)
+st.session_state.setdefault("diary_versions", [])
+st.session_state.setdefault("diary_show_versions", False)
 
-if st.button("＋ 새 일기 시작"):
+
+def wait_for_generation(job: dict) -> dict:
+    for _ in range(60):
+        job_status = get_job(job["job_id"])
+        if job_status["status"] == "completed":
+            return job_status["result"]
+        if job_status["status"] == "failed":
+            raise RuntimeError(job_status.get("error_code") or "generation failed")
+        time.sleep(0.5)
+    raise TimeoutError("일기 생성 시간이 초과됐습니다.")
+
+
+@st.dialog("오늘의 일기 후보", width="large")
+def show_version_picker() -> None:
+    version_data = list_versions(st.session_state.diary_session_id)
+    versions = version_data["versions"]
+    st.session_state.diary_versions = versions
+    if not versions:
+        st.info("아직 작성된 일기가 없어요. 오늘의 일기를 작성해 주세요!")
+        return
+    st.caption(
+        f"최대 {version_data['max_versions']}개까지 만들 수 있어요. "
+        "마음에 드는 하나를 오늘의 일기로 확정해 주세요."
+    )
+    for index, version in enumerate(versions, start=1):
+        with st.container(border=True):
+            label = f"후보 {index} · {version['title']}"
+            if version["approved"]:
+                label += "  ✅ 확정됨"
+            st.markdown(f"### {label}")
+            for paragraph in version["paragraphs"]:
+                st.write(paragraph)
+            if version.get("emotion_tags"):
+                st.caption("감정 태그: " + ", ".join(version["emotion_tags"]))
+            if not any(item["approved"] for item in versions):
+                if st.button(
+                    "이 일기를 오늘의 일기로 확정",
+                    key=f"approve-{version['version_id']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    selected = approve_version(
+                        st.session_state.diary_session_id,
+                        version["version_id"],
+                    )
+                    st.session_state.diary_result = selected
+                    with st.spinner("확정한 일기의 나레이션 대본을 만들고 있어요..."):
+                        st.session_state.diary_script_result = generate_narration_script(
+                            selected["version_id"], selected
+                        )
+                    st.session_state.diary_show_versions = False
+                    st.rerun()
+
+    if not any(item["approved"] for item in versions):
+        if version_data["can_create_new_version"]:
+            st.caption("다른 후보는 팝업을 닫고 ‘새 일기 쓰기’에서 새 채팅으로 작성해 주세요.")
+        else:
+            st.info("일기 후보 3개를 모두 만들었어요. 그중 하나를 선택해 주세요.")
+
+action_col, versions_col = st.columns(2)
+if action_col.button("＋ 새 일기 쓰기", use_container_width=True):
     try:
-        start_new_diary()
+        response = start_new_version_chat(st.session_state.diary_session_id)
+        st.session_state.diary_messages = []
+        st.session_state.diary_ready = False
+        st.session_state.diary_stage = response["stage"]
+        st.session_state.diary_review_summary = None
+        st.session_state.diary_result = None
+        st.session_state.diary_script_result = None
+        st.session_state.diary_pending_audio = None
+        st.session_state.diary_audio_editing = False
+        st.session_state.diary_show_versions = False
         st.rerun()
     except RuntimeError as exc:
         st.error(str(exc))
+
+if versions_col.button("📚 오늘의 일기 후보", use_container_width=True):
+    st.session_state.diary_show_versions = True
 
 def render_image_analysis(message: dict) -> None:
     observations = message.get("image_observations") or []
@@ -272,18 +353,18 @@ if accepting_text and not pending_audio:
 
 if st.session_state.diary_ready and st.session_state.diary_result is None:
     st.success("일기를 만들 정보가 준비됐습니다.")
-    if st.button("일기와 나레이션 대본 생성", type="primary"):
+    if st.button("오늘의 일기 후보 생성", type="primary"):
         try:
             job = request_generation(st.session_state.diary_session_id)
-            with st.spinner("HCX-007이 일기와 나레이션 대본을 작성하고 있어요..."):
+            with st.spinner("HCX-007이 오늘의 일기 후보를 작성하고 있어요..."):
                 for _ in range(60):
                     status = get_job(job["job_id"])
                     if status["status"] == "completed":
                         st.session_state.diary_result = status["result"]
-                        st.session_state.diary_script_result = generate_narration_script(
-                            st.session_state.diary_session_id,
-                            status["result"],
-                        )
+                        st.session_state.diary_versions = list_versions(
+                            st.session_state.diary_session_id
+                        )["versions"]
+                        st.session_state.diary_show_versions = False
                         break
                     if status["status"] == "failed":
                         raise RuntimeError(status.get("error_code") or "generation failed")
@@ -292,7 +373,7 @@ if st.session_state.diary_ready and st.session_state.diary_result is None:
                     raise TimeoutError("일기 생성 시간이 초과됐습니다.")
             st.rerun()
         except Exception as exc:
-            st.error(f"일기 또는 나레이션 대본 생성 실패: {exc}")
+            st.error(f"일기 후보 생성 실패: {exc}")
 
 if st.session_state.diary_result:
     result = st.session_state.diary_result
@@ -303,23 +384,31 @@ if st.session_state.diary_result:
     if result.get("emotion_tags"):
         st.caption("감정 태그: " + ", ".join(result["emotion_tags"]))
 
+    if result.get("approved"):
+        st.success("오늘의 일기로 확정됐어요.")
+    else:
+        st.info("아직 후보 상태예요. 후보를 비교한 뒤 하나를 확정해 주세요.")
+
     script_result = st.session_state.diary_script_result
-    if script_result:
+    if result.get("approved") and script_result:
         st.markdown("#### 🎙️ 나레이션 대본")
         st.write(script_result["narration_text"])
         st.caption(
             f"예상 길이: {script_result['target_duration_seconds']}초 · "
             f"대표 감정: {script_result['emotion']}"
         )
-    else:
+    elif result.get("approved"):
         st.warning("나레이션 대본을 아직 생성하지 못했습니다.")
         if st.button("나레이션 대본 다시 생성"):
             try:
                 with st.spinner("나레이션 대본을 작성하고 있어요..."):
-                    st.session_state.diary_script_result = generate_narration_script(
-                        st.session_state.diary_session_id,
-                        result,
+                        st.session_state.diary_script_result = generate_narration_script(
+                            result["version_id"],
+                            result,
                     )
                 st.rerun()
             except Exception as exc:
                 st.error(f"나레이션 대본 생성 실패: {exc}")
+
+if st.session_state.diary_show_versions:
+    show_version_picker()

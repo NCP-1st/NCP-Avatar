@@ -114,7 +114,7 @@ async def test_approved_render_reaches_voice_stub_and_surfaces_not_implemented()
 
 
 @pytest.mark.anyio
-async def test_rejection_creates_new_version_without_rendering() -> None:
+async def test_new_chat_creates_new_version_without_rendering() -> None:
     voice = NotImplementedVoiceAdapter()
     generator = StubDiaryGenerator()
     orchestrator = _orchestrator(generator=generator, voice=voice)
@@ -122,9 +122,55 @@ async def test_rejection_creates_new_version_without_rendering() -> None:
     state.workflow.stage = WorkflowStage.READY_TO_GENERATE
 
     first = await orchestrator.request_generation(state)
-    second = await orchestrator.reject_and_regenerate(state, first)
+    orchestrator.start_new_version_chat(state)
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    second = await orchestrator.request_generation(state)
 
     assert first.version_id != second.version_id
     assert len(state.versions) == 2
     assert generator.call_count == 2
     assert voice.call_count == 0
+
+
+@pytest.mark.anyio
+async def test_fourth_diary_version_is_rejected() -> None:
+    generator = StubDiaryGenerator()
+    orchestrator = _orchestrator(generator=generator)
+    state = orchestrator.start_session("session-version-limit")
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+
+    first = await orchestrator.request_generation(state)
+    orchestrator.start_new_version_chat(state)
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    second = await orchestrator.request_generation(state)
+    orchestrator.start_new_version_chat(state)
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    await orchestrator.request_generation(state)
+
+    with pytest.raises(ValueError, match="3개"):
+        orchestrator.start_new_version_chat(state)
+
+    assert len(state.versions) == 3
+    assert generator.call_count == 3
+
+
+@pytest.mark.anyio
+async def test_approving_one_version_unapproves_the_others() -> None:
+    generator = StubDiaryGenerator()
+    orchestrator = _orchestrator(generator=generator)
+    state = orchestrator.start_session("session-single-approval")
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+
+    first = await orchestrator.request_generation(state)
+    orchestrator.start_new_version_chat(state)
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    second = await orchestrator.request_generation(state)
+    orchestrator.start_new_version_chat(state)
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    await orchestrator.request_generation(state)
+    approved = orchestrator.approve(state, second)
+
+    assert approved.approved is True
+    assert [item.version_id for item in state.versions if item.approved] == [
+        second.version_id
+    ]

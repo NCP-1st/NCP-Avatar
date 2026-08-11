@@ -42,7 +42,7 @@ class CalendarDayEntry(BaseModel):
 class CalendarDiaryInput(BaseModel):
     input_id: str
     type: str
-    storage_url: str
+    storage_url: str | None = None
     transcript: str | None = None
     captured_at: datetime | None = None
     created_at: datetime | None = None
