@@ -16,7 +16,6 @@ from api.diary import (
     start_new_version_chat,
     upload_files,
 )
-from api.script import generate_narration_script
 
 
 st.title("📔 일기 채팅")
@@ -136,9 +135,10 @@ def show_version_picker() -> None:
                 )
                 st.session_state.diary_result = selected
                 with st.spinner("확정한 일기의 나레이션 대본을 만들고 있어요..."):
-                    st.session_state.diary_script_result = generate_narration_script(
-                        selected["version_id"], selected
+                    st.session_state.diary_script_result = wait_for_generation(
+                        {"job_id": selected["media_job_id"]}
                     )
+                st.session_state.diary_show_versions = False
                 st.rerun()
 
     if version_data["can_create_new_version"]:
@@ -421,6 +421,8 @@ if st.session_state.diary_result:
     if result.get("approved") and script_result:
         st.markdown("#### 🎙️ 나레이션 대본")
         st.write(script_result["narration_text"])
+        if script_result.get("audio_url"):
+            st.audio(script_result["audio_url"])
         st.caption(
             f"예상 길이: {script_result['target_duration_seconds']}초 · "
             f"대표 감정: {script_result['emotion']}"
@@ -430,9 +432,12 @@ if st.session_state.diary_result:
         if st.button("나레이션 대본 다시 생성"):
             try:
                 with st.spinner("나레이션 대본을 작성하고 있어요..."):
-                        st.session_state.diary_script_result = generate_narration_script(
-                            result["version_id"],
-                            result,
+                    retry = approve_version(
+                        st.session_state.diary_session_id,
+                        result["version_id"],
+                    )
+                    st.session_state.diary_script_result = wait_for_generation(
+                        {"job_id": retry["media_job_id"]}
                     )
                 st.rerun()
             except Exception as exc:

@@ -14,6 +14,7 @@ class DiaryData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
+    content: str = Field(min_length=1)
     paragraphs: list[str] = Field(min_length=3, max_length=7)
     summary: str = Field(min_length=1)
     emotion_tags: list[str] = Field(default_factory=list)

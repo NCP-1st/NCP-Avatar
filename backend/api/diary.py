@@ -10,6 +10,7 @@ from backend.api.schemas import (
     ConfirmTranscriptRequest,
     ConfirmTranscriptResponse,
     CreateSessionRequest,
+    DiaryApprovalResponse,
     DiaryChatRequest,
     DiaryChatResponse,
     DiaryReviewRequest,
@@ -29,9 +30,13 @@ from backend.dependencies import (
     diary_states,
     generation_jobs,
     generation_tasks,
+    get_diary_media_orchestrator,
     get_diary_orchestrator,
     get_pipeline,
+    media_jobs,
+    media_tasks,
 )
+from backend.orchestration.diary_media import DiaryMediaOrchestrator
 from backend.orchestration.diary_orchestrator import (
     MAX_DIARY_VERSIONS,
     DiaryOrchestrator,
@@ -116,6 +121,33 @@ async def _run_generation_job(
         generation_jobs[job_id].update(status="completed", result=version.model_dump())
     except Exception as exc:
         generation_jobs[job_id].update(status="failed", error_code=type(exc).__name__)
+
+
+async def _run_media_job(
+    job_id: str,
+    *,
+    version_id: str,
+    orchestrator: DiaryMediaOrchestrator,
+) -> None:
+    media_jobs[job_id]["status"] = "processing"
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await orchestrator.run(
+                version_id=version_id,
+                voice_id="nara",
+                target_duration_seconds=30,
+                tone="따뜻한 회상",
+                repository=SQLAlchemyDiaryRepository(db),
+            )
+        media_jobs[job_id].update(
+            status="completed",
+            result=result.model_dump(),
+        )
+    except Exception as exc:
+        media_jobs[job_id].update(
+            status="failed",
+            error_code=type(exc).__name__,
+        )
 
 
 @router.post("/{session_id}/inputs", response_model=PreprocessResult)
@@ -397,15 +429,19 @@ async def delete_diary_version(
 
 @router.post(
     "/{session_id}/versions/{version_id}/approve",
-    response_model=DiaryVersionResponse,
+    response_model=DiaryApprovalResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def approve_diary_version(
     session_id: str,
     version_id: str,
     pipeline: DiaryPipeline = Depends(get_pipeline),
     orchestrator: DiaryOrchestrator = Depends(get_diary_orchestrator),
+    media_orchestrator: DiaryMediaOrchestrator = Depends(
+        get_diary_media_orchestrator
+    ),
     db: AsyncSession = Depends(get_db),
-) -> DiaryVersionResponse:
+) -> DiaryApprovalResponse:
     await require_session(session_id, pipeline, db)
     repository = SQLAlchemyDiaryRepository(db)
     try:
@@ -426,12 +462,34 @@ async def approve_diary_version(
         )
         if in_memory is not None and state.stage is WorkflowStage.DRAFTED:
             selected = orchestrator.approve(state, in_memory)
-    return DiaryVersionResponse.model_validate(selected.model_dump())
+
+    job_id = str(uuid4())
+    media_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "result": None,
+        "error_code": None,
+    }
+    task = asyncio.create_task(
+        _run_media_job(
+            job_id,
+            version_id=version_id,
+            orchestrator=media_orchestrator,
+        )
+    )
+    media_tasks.add(task)
+    task.add_done_callback(media_tasks.discard)
+
+    return DiaryApprovalResponse(
+        **selected.model_dump(),
+        media_job_id=job_id,
+        media_status="queued",
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=GenerationJobStatus)
 def get_generation_job(job_id: str) -> GenerationJobStatus:
-    job = generation_jobs.get(job_id)
+    job = generation_jobs.get(job_id) or media_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="generation job not found")
     return GenerationJobStatus.model_validate(job)

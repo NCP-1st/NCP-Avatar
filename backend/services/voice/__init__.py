@@ -2,6 +2,7 @@
 
 from backend.services.voice.base import VoiceAdapter
 from backend.services.voice.clova_voice import (
+    ClovaVoiceAdapter,
     EMOTION_STRENGTH_VALUES,
     EMOTION_SUPPORTED_SPEAKERS,
     EMOTION_VALUES,
@@ -10,6 +11,7 @@ from backend.services.voice.clova_voice import (
 from backend.services.voice.stub import NotImplementedVoiceAdapter
 
 __all__ = [
+    "ClovaVoiceAdapter",
     "EMOTION_STRENGTH_VALUES",
     "EMOTION_SUPPORTED_SPEAKERS",
     "EMOTION_VALUES",

@@ -6,8 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.counsel_chatbot import ContextAgent, CounselorAgent
 from backend.agents.diary_chatbot import Hcx005MultimodalChatAgent, Hcx007DiaryGenerationAgent
+from backend.agents.diary_chatbot.write_script import Hcx007ScriptGenerationAgent
 from backend.config import load_config
 from backend.orchestration.counsel_flow import CounselFlow
+from backend.orchestration.diary_media import DiaryMediaOrchestrator
 from backend.orchestration.diary_orchestrator import DiaryOrchestrationState, DiaryOrchestrator
 from backend.orchestration.diary_pipeline import DiaryPipeline
 from backend.repositories import (
@@ -20,8 +22,12 @@ from backend.services.knowledge import (
     InMemoryPersonalOntology,
 )
 from backend.services.speech.clova import ClovaSpeechToTextAdapter
+from backend.services.storage import NcpObjectStorageAdapter
 from backend.services.storage.inline import InlineDataUrlStorageAdapter
 from database.conn.db import get_db
+from backend.services.voice import ClovaVoiceAdapter
+
+
 def build_pipeline() -> DiaryPipeline:
     config = load_config()
     storage = InlineDataUrlStorageAdapter()
@@ -39,10 +45,20 @@ repository = pipeline.repo
 diary_states: dict[str, DiaryOrchestrationState] = {}
 generation_jobs: dict[str, dict[str, Any]] = {}
 generation_tasks: set[asyncio.Task[Any]] = set()
+media_jobs: dict[str, dict[str, Any]] = {}
+media_tasks: set[asyncio.Task[Any]] = set()
 
 diary_orchestrator = DiaryOrchestrator(
     chat_agent=Hcx005MultimodalChatAgent(load_config()),
     generation_agent=Hcx007DiaryGenerationAgent(load_config()),
+)
+
+media_config = load_config()
+diary_media_orchestrator = DiaryMediaOrchestrator(
+    script_agent=Hcx007ScriptGenerationAgent(media_config),
+    voice_adapter=ClovaVoiceAdapter(media_config),
+    storage_adapter=NcpObjectStorageAdapter(media_config["object_storage"]),
+    config=media_config,
 )
 
 
@@ -52,6 +68,10 @@ def get_pipeline() -> DiaryPipeline:
 
 def get_diary_orchestrator() -> DiaryOrchestrator:
     return diary_orchestrator
+
+
+def get_diary_media_orchestrator() -> DiaryMediaOrchestrator:
+    return diary_media_orchestrator
 
 
 # --- 상담 -----------------------------------------------------------------

@@ -172,21 +172,99 @@ class NarrationScript(Base):
     target_duration_seconds: Mapped[int] = mapped_column(Integer, default=30)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     llm_model: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    voice_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    audio_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    audio_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    audio_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    audio_mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     diary_version: Mapped["DiaryVersion"] = relationship(
-        "DiaryVersion", back_populates="narration_script"
+        "DiaryVersion",
+        back_populates="narration_script",
+    )
+    audios: Mapped[List["DiaryAudio"]] = relationship(
+        "DiaryAudio",
+        back_populates="script",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
+
+class DiaryAudio(Base):
+    __tablename__ = "diary_audios"
+    __table_args__ = (
+        Index(
+            "ix_diary_audios_script_status_created",
+            "script_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    audio_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    script_id: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("narration_scripts.script_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    voice_id: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+        nullable=False,
+    )
+
+    object_key: Mapped[Optional[str]] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+    audio_url: Mapped[Optional[str]] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+    audio_hash: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    audio_size: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    audio_mime_type: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    duration_seconds: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    error_code: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    script: Mapped["NarrationScript"] = relationship(
+        "NarrationScript",
+        back_populates="audios",
+    )
 
 class AvatarVideo(Base):
     __tablename__ = "avatar_videos"

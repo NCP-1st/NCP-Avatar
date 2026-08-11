@@ -17,6 +17,7 @@ def generate_narration_script(
             "diary_id": diary_id,
             "diary": {
                 "title": diary_result["title"],
+                "content": diary_result["content"],
                 "paragraphs": diary_result["paragraphs"],
                 "summary": diary_result["summary"],
                 "emotion_tags": diary_result.get("emotion_tags", []),

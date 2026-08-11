@@ -153,6 +153,11 @@ class DiaryVersionResponse(BaseModel):
     approved: bool
 
 
+class DiaryApprovalResponse(DiaryVersionResponse):
+    media_job_id: str
+    media_status: str
+
+
 class DiaryVersionListResponse(BaseModel):
     session_id: str
     versions: list[DiaryVersionResponse]
