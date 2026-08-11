@@ -14,18 +14,10 @@ class DiaryData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
-    story: str = Field(min_length=1)
-    feelings: list[str] = Field(min_length=1)
-
-
-class ChatMetadata(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    people: list[str] = Field(default_factory=list)
-    places: list[str] = Field(default_factory=list)
-    events: list[str] = Field(default_factory=list)
-    dominant_feeling: str
-    keywords: list[str] = Field(default_factory=list)
+    paragraphs: list[str] = Field(min_length=3, max_length=7)
+    summary: str = Field(min_length=1)
+    emotion_tags: list[str] = Field(default_factory=list)
+    evidence_input_ids: list[str] = Field(default_factory=list)
 
 
 class ScriptOptions(BaseModel):
@@ -36,18 +28,13 @@ class ScriptOptions(BaseModel):
 
 
 class WriteScriptInput(BaseModel):
-    """완성된 일기와 채팅 메타데이터를 담는 대본 생성 입력."""
+    """완성된 일기를 담는 나레이션 미리보기 생성 입력."""
 
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str
     diary_id: str
-    diary_date: str
-    diary_version_id: str
     diary: DiaryData
-    chat_metadata: ChatMetadata
     script_options: ScriptOptions = Field(default_factory=ScriptOptions)
-    approved: bool
 
 
 class NarrationScript(BaseModel):

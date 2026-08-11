@@ -8,7 +8,7 @@ from backend.agents.diary_chatbot.write_script.agent import (
     write_script,
 )
 from backend.agents.diary_chatbot.write_script.schemas import (
-    WriteScriptInput,
+    WriteScriptInput, 
 )
 from backend.config import load_config
 
@@ -30,11 +30,13 @@ async def main() -> None:
     print(
         json.dumps(
             result.model_dump(mode="json"),
-            ensure_ascii=False,
-            indent=2,
+            ensure_ascii= False,
+            indent =2,
+
         )
     )
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+

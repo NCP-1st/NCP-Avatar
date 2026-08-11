@@ -5,6 +5,7 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -32,6 +33,8 @@ from backend.services.llm import ChatMessage, LLMRequest, LLMResponse, generate_
 logger = logging.getLogger("mediary.diary_chatbot")
 
 GenerateFunction = Callable[[LLMRequest, dict[str, Any]], Awaitable[LLMResponse]]
+
+_TEST_DIARY_OUTPUT_PATH = Path(__file__).resolve().parent / "output" / "test_diary.json"
 
 INTERPRET_SYSTEM_PROMPT = """
 당신은 Mediary의 멀티모달 일기 챗봇이다. 입력에 없는 사실을 추측하지 않는다.
@@ -481,6 +484,10 @@ class Hcx007DiaryGenerationAgent(DiaryGenerationAgent):
 
             draft = DiaryDraft.model_validate(raw_json)
             draft = _sanitize_diary_draft(draft, turns)
+            draft = draft.model_copy(update={"model": response.model})
+
+            # TODO: 테스트 전용 저장 함수. DB DiaryVersion 저장 경로가 연결되면 삭제한다.
+            _save_test_diary_json(draft)
 
             # 1번 지적 사항 반영: 성공 로깅
             elapsed_ms = (time.monotonic() - started) * 1000
@@ -493,7 +500,7 @@ class Hcx007DiaryGenerationAgent(DiaryGenerationAgent):
                     "paragraphs_count": len(draft.paragraphs),
                 },
             )
-            return draft.model_copy(update={"model": response.model})
+            return draft
 
         except Exception as e:
             # 1번 지적 사항 반영: 실패 로깅 후 예외 re-raise
@@ -508,6 +515,16 @@ class Hcx007DiaryGenerationAgent(DiaryGenerationAgent):
                 },
             )
             raise
+
+
+def _save_test_diary_json(draft: DiaryDraft) -> Path:
+    """Save the latest generated diary as JSON for local integration testing."""
+    _TEST_DIARY_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _TEST_DIARY_OUTPUT_PATH.write_text(
+        json.dumps(draft.model_dump(mode="json"), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return _TEST_DIARY_OUTPUT_PATH
 
 
 # def _sanitize_diary_draft(draft: DiaryDraft, turns: list[ChatbotTurnResult]) -> DiaryDraft:
