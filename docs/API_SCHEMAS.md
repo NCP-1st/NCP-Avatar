@@ -193,6 +193,68 @@
 
 최종 생성에는 해당 세션의 전체 대화와 확정된 입력을 사용한다. 사람·장소·감정은 생성 게이트의 필수 정보이고, 그 밖에 사용자가 추가로 말한 사건과 세부 내용도 일기와 대본에 포함한다.
 
+## 8. 캘린더 조회 (K-01/K-02)
+
+### 8.1 월간/기간 목록 (미리보기)
+
+`GET /api/calendar`
+
+```json
+{
+  "request": {
+    "user_id": "string",
+    "start_date": "YYYY-MM-DD",
+    "end_date": "YYYY-MM-DD",
+    "status": ["active | processing | completed | failed"],
+    "emotion": "string | null",
+    "keyword": "string | null",
+    "latitude": 0.0,
+    "longitude": 0.0,
+    "radius": 1000.0
+  },
+  "response": {
+    "user_id": "string",
+    "start_date": "YYYY-MM-DD",
+    "end_date": "YYYY-MM-DD",
+    "summary": {
+      "total_entries": 0,
+      "completed_entries": 0,
+      "processing_entries": 0,
+      "failed_entries": 0,
+      "approved_entries": 0
+    },
+    "entries": [{
+      "diary_date": "YYYY-MM-DD",
+      "session_id": "string",
+      "status": "active | processing | completed | failed",
+      "db_status": "string",
+      "title": "string | null",
+      "summary": "string | null",
+      "emotion_tags": ["string"],
+      "approved": true,
+      "video_status": "pending | processing | completed | failed | null",
+      "location_name": "string | null"
+    }]
+  }
+}
+```
+
+`awaiting_approval` DB 상태는 목록/집계에서 `processing`으로 정규화된다.
+
+### 8.2 일기 상세
+
+`GET /api/calendar/{session_id}?user_id=...`
+
+목록 항목 + `content`, `paragraphs`, `evidence_input_ids`, `narration_*`, `diary_inputs`, `versions`.
+
+### 8.3 감정 태그 목록
+
+`GET /api/calendar/emotions?user_id=...&start_date=...&end_date=...`
+
+```json
+{"user_id": "string", "start_date": "YYYY-MM-DD | null", "end_date": "YYYY-MM-DD | null", "emotions": ["happy"]}
+```
+
 ## 전체 단계 상태값
 
 `collecting`, `needs_clarification`, `awaiting_summary_confirmation`, `awaiting_more_content`, `adding_more_content`, `awaiting_correction`, `ready_to_generate`, `drafted`, `approved`, `rendering`, `completed`, `failed`

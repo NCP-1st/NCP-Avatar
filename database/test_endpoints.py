@@ -136,7 +136,9 @@ async def run_integration_tests():
         assert entry["status"] == "completed"
         assert entry["title"] == "Sunny Thursday"
         assert entry["summary"] == "A bright and sunny day."
+        assert entry["content"] == "Thursday afternoon was nice."
         assert entry["script"] == "Thursday afternoon was nice."
+        assert entry["db_status"] == "completed"
         assert entry["approved"] is True
         assert "happy" in entry["emotion_tags"]
         assert entry["video_status"] == "completed"

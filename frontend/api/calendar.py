@@ -15,32 +15,68 @@ def fetch_calendar_data(
     user_id: str,
     start_date: date,
     end_date: date,
-    status: str | None = None,
+    status: str | list[str] | None = None,
     emotion: str | None = None,
     keyword: str | None = None,
     latitude: float | None = None,
     longitude: float | None = None,
     radius: float = 1000.0,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Fetch calendar data and return either payload or a readable error."""
+    """Fetch lightweight calendar previews for a date range."""
     url = f"{BACKEND_URL}/calendar"
-    params: dict[str, Any] = {
-        "user_id": user_id,
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
-        "radius": radius,
-    }
+    params: list[tuple[str, Any]] = [
+        ("user_id", user_id),
+        ("start_date", start_date.isoformat()),
+        ("end_date", end_date.isoformat()),
+        ("radius", radius),
+    ]
 
     if status:
-        params["status"] = status
+        status_values = status if isinstance(status, list) else [status]
+        for value in status_values:
+            params.append(("status", value))
     if emotion:
-        params["emotion"] = emotion
+        params.append(("emotion", emotion))
     if keyword:
-        params["keyword"] = keyword
+        params.append(("keyword", keyword))
     if latitude is not None and longitude is not None:
-        params["latitude"] = latitude
-        params["longitude"] = longitude
+        params.extend([("latitude", latitude), ("longitude", longitude)])
 
+    return _request_json(url, params)
+
+
+def fetch_calendar_entry_detail(
+    user_id: str,
+    session_id: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Fetch full diary detail for a calendar session."""
+    url = f"{BACKEND_URL}/calendar/{session_id}"
+    return _request_json(url, {"user_id": user_id})
+
+
+def fetch_calendar_emotions(
+    user_id: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> tuple[list[str], str | None]:
+    """Fetch distinct emotion tags for filter dropdowns."""
+    url = f"{BACKEND_URL}/calendar/emotions"
+    params: dict[str, Any] = {"user_id": user_id}
+    if start_date is not None:
+        params["start_date"] = start_date.isoformat()
+    if end_date is not None:
+        params["end_date"] = end_date.isoformat()
+
+    payload, error = _request_json(url, params)
+    if error:
+        return [], error
+    return payload.get("emotions", []) if payload else [], None
+
+
+def _request_json(
+    url: str,
+    params: dict[str, Any] | list[tuple[str, Any]],
+) -> tuple[dict[str, Any] | None, str | None]:
     try:
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()

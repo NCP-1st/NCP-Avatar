@@ -8,7 +8,7 @@ from typing import Any
 
 import streamlit as st
 
-from api.calendar import fetch_calendar_data
+from api.calendar import fetch_calendar_data, fetch_calendar_entry_detail, fetch_calendar_emotions
 
 
 def svg_icon(name: str, *, size: int = 18, stroke: str = "#36536B") -> str:
@@ -388,14 +388,46 @@ st.markdown(
         white-space: normal;
     }
     div.stButton > button[kind="primary"] {
-        border: 2px solid #bfe5c9 !important;
-        box-shadow: 0 0 0 3px rgba(191, 229, 201, 0.45), 0 10px 22px rgba(18, 50, 74, 0.08) !important;
-        background: linear-gradient(180deg, rgba(250, 255, 251, 1) 0%, rgba(239, 247, 242, 1) 100%) !important;
-        color: #14324A !important;
+        background-color: #f0fdf4 !important;
+        background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%) !important;
+        border: 2px solid #86efac !important;
+        box-shadow: 0 0 0 2px rgba(134, 239, 172, 0.35), 0 10px 22px rgba(22, 101, 52, 0.08) !important;
+        color: #14532d !important;
+    }
+    div.calendar-grid-wrap div.stButton > button[kind="primary"],
+    div.calendar-grid-wrap div.stButton > button[data-testid="baseButton-primary"] {
+        background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%) !important;
+        background-color: #ecfdf5 !important;
+        border: 2px solid #86efac !important;
+        color: #14532d !important;
+        box-shadow: 0 0 0 2px rgba(134, 239, 172, 0.35), 0 8px 18px rgba(22, 101, 52, 0.08) !important;
+    }
+    div.calendar-grid-wrap div.stButton > button[kind="primary"]:hover,
+    div.calendar-grid-wrap div.stButton > button[data-testid="baseButton-primary"]:hover {
+        border-color: #4ade80 !important;
+        background: linear-gradient(180deg, #ecfdf5 0%, #bbf7d0 100%) !important;
+        color: #14532d !important;
+    }
+    div.calendar-grid-wrap div.stButton > button.entry-processing {
+        border-color: #fbbf24 !important;
+        box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.25), 0 8px 18px rgba(22, 101, 52, 0.06) !important;
+    }
+    div.calendar-grid-wrap div.stButton > button.entry-failed {
+        background: linear-gradient(180deg, #fff7f7 0%, #fee2e2 100%) !important;
+        border-color: #fca5a5 !important;
+        color: #991b1b !important;
+        box-shadow: 0 0 0 2px rgba(252, 165, 165, 0.25), 0 8px 18px rgba(153, 27, 27, 0.06) !important;
+    }
+    div.calendar-grid-wrap div.stButton > button.entry-active {
+        background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%) !important;
+        border-color: #93c5fd !important;
+        color: #1e3a8a !important;
+        box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.25), 0 8px 18px rgba(30, 58, 138, 0.06) !important;
     }
     div.stButton > button[kind="secondary"] {
-        border: 1px solid #d8e5ef !important;
+        background-color: #ffffff !important;
         background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246,250,255,0.98) 100%) !important;
+        border: 1px solid #d8e5ef !important;
         color: #14324A !important;
     }
     div.stButton > button:hover {
@@ -416,10 +448,10 @@ st.markdown(
         animation: calendarFocusPulse 1.6s ease-in-out 1;
     }
     @keyframes calendarFocusPulse {
-        0% { box-shadow: 0 0 0 rgba(61, 122, 184, 0); }
-        30% { box-shadow: 0 0 0 6px rgba(61, 122, 184, 0.18); }
-        70% { box-shadow: 0 0 0 12px rgba(75, 179, 200, 0.12); }
-        100% { box-shadow: 0 0 0 rgba(61, 122, 184, 0); }
+        0% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+        30% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.22); }
+        70% { box-shadow: 0 0 0 12px rgba(74, 222, 128, 0.14); }
+        100% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
     }
     </style>
     """,
@@ -471,6 +503,14 @@ LOCATION_PRESETS = {
     "부산시청": (35.1796, 129.0756),
     "제주도청": (33.4890, 126.4983),
 }
+
+PERIOD_PRESETS = {
+    "이번 달": "month",
+    "최근 7일": "7d",
+    "최근 30일": "30d",
+}
+
+STATUS_PRIORITY = {"completed": 0, "processing": 1, "active": 2, "failed": 3}
 
 
 def format_emotion_label(tag: str) -> str:
@@ -540,11 +580,25 @@ def get_month_range(year: int, month: int) -> tuple[date, date]:
     return start, date(year, month + 1, 1) - timedelta(days=1)
 
 
-def build_entries_map(entries: list[dict[str, Any]]) -> dict[date, dict[str, Any]]:
-    mapped: dict[date, dict[str, Any]] = {}
+def build_entries_by_date(entries: list[dict[str, Any]]) -> dict[date, list[dict[str, Any]]]:
+    mapped: dict[date, list[dict[str, Any]]] = {}
     for entry in entries:
-        mapped[date.fromisoformat(entry["diary_date"])] = entry
+        mapped.setdefault(date.fromisoformat(entry["diary_date"]), []).append(entry)
     return mapped
+
+
+def pick_primary_entry(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    return sorted(entries, key=lambda item: STATUS_PRIORITY.get(item.get("status", "active"), 99))[0]
+
+
+def resolve_date_range(preset: str, anchor: date) -> tuple[date, date]:
+    if preset == "7d":
+        end = anchor
+        return end - timedelta(days=6), end
+    if preset == "30d":
+        end = anchor
+        return end - timedelta(days=29), end
+    return get_month_range(anchor.year, anchor.month)
 
 
 def get_preview_line(entry: dict[str, Any] | None) -> str:
@@ -583,18 +637,27 @@ def detect_asset_icon(asset_type: str) -> str:
     }.get(asset_type, "file-text")
 
 
-def open_entry_dialog(entry: dict[str, Any]) -> None:
-    @st.dialog(entry["diary_date"], width="large")
+def open_entry_dialog(entry: dict[str, Any], user_id: str) -> None:
+    detail, detail_error = fetch_calendar_entry_detail(user_id, entry["session_id"])
+    if detail_error:
+        st.warning(f"상세 정보를 불러오지 못했습니다. 미리보기 데이터를 표시합니다. ({detail_error})")
+        detail = entry
+    elif detail:
+        detail = {**entry, **detail}
+    else:
+        detail = entry
+
+    @st.dialog(f"{detail['diary_date']} · {detail.get('title') or '일기 상세'}", width="large")
     def _dialog() -> None:
-        status_label, status_class, status_icon = format_status(entry["status"])
+        status_label, status_class, status_icon = format_status(detail["status"])
         st.markdown('<div class="detail-shell">', unsafe_allow_html=True)
         st.markdown(
-            f"<div class='detail-header'><div class='detail-title'>{svg_icon('calendar', size=20, stroke='#14324A')}<span>{entry.get('title') or '제목 없는 기록'}</span></div><div><span class='metric-pill {status_class}'>{svg_icon(status_icon, size=14, stroke='currentColor')}<span>{status_label}</span></span></div></div>",
+            f"<div class='detail-header'><div class='detail-title'>{svg_icon('calendar', size=20, stroke='#14324A')}<span>{detail.get('title') or '제목 없는 기록'}</span></div><div><span class='metric-pill {status_class}'>{svg_icon(status_icon, size=14, stroke='currentColor')}<span>{status_label}</span></span></div></div>",
             unsafe_allow_html=True,
         )
         meta_cols = st.columns([1.6, 1.0, 1.0], gap="small")
         with meta_cols[0]:
-            if entry.get("approved"):
+            if detail.get("approved"):
                 st.markdown(
                     f"<span class='metric-pill pill-completed'>{svg_icon('check', size=14, stroke='currentColor')}<span>승인 완료</span></span>",
                     unsafe_allow_html=True,
@@ -605,32 +668,61 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
                     unsafe_allow_html=True,
                 )
         with meta_cols[1]:
-            if entry.get("location_name"):
-                st.caption(f"위치: {entry['location_name']}")
+            if detail.get("location_name"):
+                st.caption(f"위치: {detail['location_name']}")
         with meta_cols[2]:
-            st.caption(f"작성일: {entry.get('diary_date') or '미기록'}")
+            st.caption(f"작성일: {detail.get('diary_date') or '미기록'}")
 
         st.markdown(
             f"<div class='section-title'>{svg_icon('sparkle', size=16, stroke='#14324A')}<span>감정 태그</span></div>",
             unsafe_allow_html=True,
         )
-        render_emotion_badges(entry.get("emotion_tags"))
+        render_emotion_badges(detail.get("emotion_tags"))
 
-        if entry.get("summary"):
+        if detail.get("summary"):
             st.markdown(
                 f"<div class='section-title'>{svg_icon('file-text', size=16, stroke='#14324A')}<span>일기 요약</span></div>",
                 unsafe_allow_html=True,
             )
-            st.write(entry["summary"])
+            st.write(detail["summary"])
 
-        if entry.get("script"):
+        paragraphs = detail.get("paragraphs") or []
+        if paragraphs:
+            st.markdown(
+                f"<div class='section-title'>{svg_icon('file-text', size=16, stroke='#14324A')}<span>일기 문단</span></div>",
+                unsafe_allow_html=True,
+            )
+            for idx, paragraph in enumerate(paragraphs, start=1):
+                st.markdown(f"**{idx}문단**")
+                st.write(paragraph)
+
+        diary_content = detail.get("content") or detail.get("script")
+        if diary_content:
+            st.markdown(
+                f"<div class='section-title'>{svg_icon('file-text', size=16, stroke='#14324A')}<span>일기 본문</span></div>",
+                unsafe_allow_html=True,
+            )
+            st.write(diary_content)
+
+        narration_text = detail.get("narration_text")
+        if narration_text:
             st.markdown(
                 f"<div class='section-title'>{svg_icon('mic', size=16, stroke='#14324A')}<span>나레이션 대본</span></div>",
                 unsafe_allow_html=True,
             )
-            st.write(entry["script"])
+            st.write(narration_text)
+            if detail.get("narration_audio_url"):
+                st.audio(detail["narration_audio_url"])
+            elif detail.get("narration_status") == "processing":
+                st.info("나레이션 음성 생성이 진행 중입니다.")
+        elif detail.get("narration_status") == "failed":
+            st.error("나레이션 대본 생성에 실패했습니다.")
 
-        diary_inputs = entry.get("diary_inputs", [])
+        evidence_ids = detail.get("evidence_input_ids") or []
+        if evidence_ids:
+            st.caption(f"근거 입력 ID: {', '.join(evidence_ids)}")
+
+        diary_inputs = detail.get("diary_inputs", [])
         st.markdown(
             f"<div class='section-title'>{svg_icon('layers', size=16, stroke='#14324A')}<span>일기 입력 산출물</span></div>",
             unsafe_allow_html=True,
@@ -661,7 +753,7 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
                 unsafe_allow_html=True,
             )
 
-        versions = entry.get("versions", [])
+        versions = detail.get("versions", [])
         st.markdown(
             f"<div class='section-title'>{svg_icon('layers', size=16, stroke='#14324A')}<span>버전 기록</span></div>",
             unsafe_allow_html=True,
@@ -672,9 +764,13 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
                 with st.expander(f"{version_label} · {version.get('title') or '제목 없음'}", expanded=False):
                     render_emotion_badges(version.get("emotion_tags"))
                     st.write(version.get("summary") or "요약 없음")
-                    if version.get("script"):
+                    version_content = version.get("content") or version.get("script")
+                    if version_content:
+                        st.caption("일기 본문")
+                        st.write(version_content)
+                    if version.get("narration_text"):
                         st.caption("나레이션")
-                        st.write(version["script"])
+                        st.write(version["narration_text"])
         else:
             st.caption("버전 기록이 없습니다.")
 
@@ -682,13 +778,13 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
             f"<div class='section-title'>{svg_icon('video', size=16, stroke='#14324A')}<span>아바타 영상</span></div>",
             unsafe_allow_html=True,
         )
-        if entry.get("video_status") == "completed" and entry.get("video_url"):
-            st.video(entry["video_url"])
-        elif entry.get("video_status") == "processing":
+        if detail.get("video_status") == "completed" and detail.get("video_url"):
+            st.video(detail["video_url"])
+        elif detail.get("video_status") == "processing":
             st.info("아바타 영상 렌더링이 진행 중입니다.")
-        elif entry.get("video_status") == "failed":
+        elif detail.get("video_status") == "failed":
             st.error("아바타 영상 생성에 실패했습니다.")
-        elif entry.get("video_status") == "pending":
+        elif detail.get("video_status") == "pending":
             st.info("아바타 영상 생성 대기 중입니다.")
         else:
             st.caption("연결된 영상이 없습니다.")
@@ -697,8 +793,14 @@ def open_entry_dialog(entry: dict[str, Any]) -> None:
     _dialog()
 
 
-def render_calendar_grid(year: int, month: int, entries_map: dict[date, dict[str, Any]]) -> None:
+def render_calendar_grid(
+    year: int,
+    month: int,
+    entries_by_date: dict[date, list[dict[str, Any]]],
+) -> None:
     selected_date = st.session_state.get("selected_date")
+    selected_session_id = st.session_state.get("selected_session_id")
+    st.markdown('<div class="calendar-grid-wrap">', unsafe_allow_html=True)
     week_headers = ["일", "월", "화", "수", "목", "금", "토"]
     header_cols = st.columns(7, gap="small")
     for idx, header in enumerate(week_headers):
@@ -724,34 +826,30 @@ def render_calendar_grid(year: int, month: int, entries_map: dict[date, dict[str
                 continue
 
             current_date = date(year, month, current_day)
-            entry = entries_map.get(current_date)
+            day_entries = entries_by_date.get(current_date, [])
+            entry = pick_primary_entry(day_entries) if day_entries else None
             if entry:
                 status_label, _, _ = format_status(entry["status"])
                 emotion_tags = entry.get("emotion_tags") or []
                 emotion_label = format_emotion_label(emotion_tags[0]) if emotion_tags else "감정 없음"
                 preview_line = get_preview_line(entry)
+                if len(day_entries) > 1:
+                    preview_line = f"{len(day_entries)}건 · {preview_line}"
                 label = f"{current_day}\n{status_label}\n{preview_line}"
-                help_text = f"{emotion_label} · 기록 있음 · 클릭해서 상세 보기"
+                help_text = f"{emotion_label} · 기록 {len(day_entries)}건 · 클릭해서 상세 보기"
             else:
                 label = f"{current_day}\n기록 없음"
                 help_text = "이 날짜에는 아직 기록이 없습니다."
 
             button_key = f"calendar_{current_date.isoformat()}"
-            target_marker = "calendar-focus-flash" if selected_date == current_date else ""
+            is_selected = selected_date == current_date and (
+                selected_session_id is None or entry is None or entry.get("session_id") == selected_session_id
+            )
+            target_marker = "calendar-focus-flash" if is_selected else ""
             cols[weekday].markdown(
                 f"<div id='calendar-target-{current_date.isoformat()}' class='calendar-target-marker {target_marker}'></div>",
                 unsafe_allow_html=True,
             )
-            if entry:
-                cols[weekday].markdown(
-                    "<style>button[kind='primary'] { color: #12314a !important; }</style>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                cols[weekday].markdown(
-                    "<style>button[kind='primary'] { color: #7a8c9a !important; }</style>",
-                    unsafe_allow_html=True,
-                )
 
             if cols[weekday].button(
                 label,
@@ -761,9 +859,12 @@ def render_calendar_grid(year: int, month: int, entries_map: dict[date, dict[str
             ):
                 st.session_state["selected_date"] = current_date
                 st.session_state["selected_entry"] = entry
+                st.session_state["selected_session_id"] = entry.get("session_id") if entry else None
                 st.session_state["open_dialog"] = bool(entry)
 
             current_day += 1
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_today_panel(entry: dict[str, Any] | None, selected_date: date) -> None:
@@ -790,7 +891,7 @@ def render_today_panel(entry: dict[str, Any] | None, selected_date: date) -> Non
 
     st.write("")
     st.markdown(
-        f"<div style='font-size:1.2rem; font-weight:900; background:linear-gradient(90deg,#173d5e,#4d90c9,#5bb0c1); -webkit-background-clip:text; background-clip:text; color:transparent; margin-bottom:0.5rem;'>{entry.get('title') or '제목 없는 기록'}</div>",
+        f"<div style='font-size:1.2rem; font-weight:900; color:#14324A; margin-bottom:0.5rem;'>{entry.get('title') or '제목 없는 기록'}</div>",
         unsafe_allow_html=True,
     )
     render_emotion_badges(entry.get("emotion_tags"))
@@ -833,11 +934,16 @@ if "calendar_anchor_date" not in st.session_state:
     st.session_state["calendar_anchor_date"] = today.replace(day=1)
 if "summary_filter" not in st.session_state:
     st.session_state["summary_filter"] = "all"
+if "selected_session_id" not in st.session_state:
+    st.session_state["selected_session_id"] = None
+if "period_preset" not in st.session_state:
+    st.session_state["period_preset"] = "이번 달"
+
 if "scroll_to_record" not in st.session_state:
     st.session_state["scroll_to_record"] = False
 
 st.markdown('<div class="toolbar-card">', unsafe_allow_html=True)
-toolbar_cols = st.columns([1.8, 1.4, 1.3, 1.1], gap="small")
+toolbar_cols = st.columns([1.5, 1.2, 1.3, 1.2, 1.0], gap="small")
 with toolbar_cols[0]:
     st.markdown(
         f"<div class='section-label'>{icon_text('calendar', '월간 기록 탐색')}</div>",
@@ -879,15 +985,30 @@ with toolbar_cols[2]:
         f"<div class='section-label'>{icon_text('filter', '상태 필터')}</div>",
         unsafe_allow_html=True,
     )
-    status_label = st.selectbox(
+    status_filters = st.multiselect(
         "상태 필터",
-        options=list(STATUS_OPTIONS.keys()),
+        options=[label for label in STATUS_OPTIONS if STATUS_OPTIONS[label]],
+        default=[],
+        placeholder="전체 상태",
         label_visibility="collapsed",
     )
 
 with toolbar_cols[3]:
     selected_year = selected_anchor.year
     selected_month = selected_anchor.month
+    st.markdown(
+        f"<div class='section-label'>{icon_text('clock', '조회 기간')}</div>",
+        unsafe_allow_html=True,
+    )
+    period_label = st.selectbox(
+        "조회 기간",
+        options=list(PERIOD_PRESETS.keys()),
+        index=list(PERIOD_PRESETS.keys()).index(st.session_state["period_preset"]),
+        label_visibility="collapsed",
+    )
+    st.session_state["period_preset"] = period_label
+
+with toolbar_cols[4]:
     st.markdown(
         f"<div class='section-label'>{icon_text('grid', '현재 조회')}</div>",
         unsafe_allow_html=True,
@@ -897,6 +1018,9 @@ with toolbar_cols[3]:
         unsafe_allow_html=True,
     )
 st.markdown("</div>", unsafe_allow_html=True)
+
+start_date, end_date = resolve_date_range(PERIOD_PRESETS[st.session_state["period_preset"]], today)
+emotion_options, _emotion_error = fetch_calendar_emotions(user_id, start_date, end_date)
 
 with st.expander("상세 검색 및 위치 필터", expanded=False):
     filter_cols = st.columns([1.4, 1.0, 1.0], gap="small")
@@ -915,9 +1039,12 @@ with st.expander("상세 검색 및 위치 필터", expanded=False):
             f"<div class='section-label'>{icon_text('sparkle', '감정')}</div>",
             unsafe_allow_html=True,
         )
+        emotion_labels = {
+            tag: EMOTION_LABELS.get(tag.lower(), tag) for tag in emotion_options
+        } or EMOTION_LABELS
         emotion_choice = st.selectbox(
             "감정",
-            options=["전체"] + list(EMOTION_LABELS.values()),
+            options=["전체"] + list(emotion_labels.values()),
             label_visibility="collapsed",
         )
     with filter_cols[2]:
@@ -946,6 +1073,7 @@ with st.expander("상세 검색 및 위치 필터", expanded=False):
 st.markdown(
     f"""
     <div class="legend-wrap">
+        <span class="legend-chip">{svg_icon("check", size=14, stroke="#1B6C45")}<span>기록 있음 (초록)</span></span>
         <span class="legend-chip">{svg_icon("check", size=14, stroke="#1B6C45")}<span>완료</span></span>
         <span class="legend-chip">{svg_icon("clock", size=14, stroke="#9C6B05")}<span>처리 중</span></span>
         <span class="legend-chip">{svg_icon("edit", size=14, stroke="#2E5B9A")}<span>작성 중</span></span>
@@ -956,19 +1084,32 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-start_date, end_date = get_month_range(selected_year, selected_month)
+start_date, end_date = resolve_date_range(PERIOD_PRESETS[period_label], today)
+if PERIOD_PRESETS[period_label] == "month":
+    selected_year = selected_anchor.year
+    selected_month = selected_anchor.month
+else:
+    selected_year = end_date.year
+    selected_month = end_date.month
+
 selected_emotion_key = None
 if emotion_choice != "전체":
+    label_map = {
+        tag: EMOTION_LABELS.get(tag.lower(), tag) for tag in emotion_options
+    } if emotion_options else EMOTION_LABELS
     selected_emotion_key = next(
-        key for key, label in EMOTION_LABELS.items() if label == emotion_choice
+        (key for key, label in label_map.items() if label == emotion_choice),
+        None,
     )
+
+status_query = [STATUS_OPTIONS[label] for label in status_filters if STATUS_OPTIONS.get(label)]
 
 with st.spinner("캘린더 데이터를 불러오는 중입니다..."):
     api_result, api_error = fetch_calendar_data(
         user_id=user_id,
         start_date=start_date,
         end_date=end_date,
-        status=STATUS_OPTIONS[status_label],
+        status=status_query or None,
         emotion=selected_emotion_key,
         keyword=keyword or None,
         latitude=latitude,
@@ -1005,17 +1146,23 @@ for idx, (label, value, caption, icon_name, filter_key) in enumerate(summary_ite
     with summary_cols[idx]:
         render_summary_card(label, int(value), caption, icon_name, filter_key, summary_filter)
 
-entries_map = build_entries_map(filtered_entries)
+entries_by_date = build_entries_by_date(filtered_entries)
 selected_date = st.session_state.get("selected_date", today)
 selected_entry = None
 if filtered_entries:
-    first_matching_date = date.fromisoformat(filtered_entries[0]["diary_date"])
     if start_date <= selected_date <= end_date:
-        selected_entry = entries_map.get(selected_date)
+        day_entries = entries_by_date.get(selected_date, [])
+        if day_entries:
+            selected_session_id = st.session_state.get("selected_session_id")
+            selected_entry = next(
+                (item for item in day_entries if item.get("session_id") == selected_session_id),
+                pick_primary_entry(day_entries),
+            )
     if selected_entry is None:
         selected_entry = filtered_entries[0]
-        selected_date = first_matching_date
+        selected_date = date.fromisoformat(selected_entry["diary_date"])
         st.session_state["selected_date"] = selected_date
+        st.session_state["selected_session_id"] = selected_entry.get("session_id")
     elif summary_filter != "all":
         st.session_state["selected_date"] = selected_date
 else:
@@ -1042,8 +1189,11 @@ if month_entries:
         summary_text = entry.get("summary") or "요약 내용이 아직 없습니다."
         status_key = entry.get("status") or "active"
         status_class = "completed" if status_key == "completed" else "processing" if status_key == "processing" else "failed" if status_key == "failed" else "active"
-        is_selected = selected_entry is not None and entry_date == date.fromisoformat(selected_entry["diary_date"])
-        card_key = f"month_entry_{entry['diary_date']}_{entry.get('id', 'noid')}"
+        is_selected = (
+            selected_entry is not None
+            and entry.get("session_id") == selected_entry.get("session_id")
+        )
+        card_key = f"month_entry_{entry['session_id']}"
         card_html = f"""
         <div class="record-list-card {'is-selected' if is_selected else ''}" onclick="document.getElementById('{card_key}').click(); return false;" style="cursor:pointer;">
             <div class="record-list-main">
@@ -1063,6 +1213,7 @@ if month_entries:
         ):
             st.session_state["selected_date"] = entry_date
             st.session_state["selected_entry"] = entry
+            st.session_state["selected_session_id"] = entry.get("session_id")
             st.session_state["open_dialog"] = True
     st.markdown('</div>', unsafe_allow_html=True)
 else:
@@ -1073,8 +1224,10 @@ else:
 
 st.write("")
 wide_col, side_col = st.columns([5.8, 1.9], gap="medium")
+grid_year = selected_anchor.year if PERIOD_PRESETS[period_label] == "month" else end_date.year
+grid_month = selected_anchor.month if PERIOD_PRESETS[period_label] == "month" else end_date.month
 with wide_col:
-    render_calendar_grid(selected_year, selected_month, entries_map)
+    render_calendar_grid(grid_year, grid_month, entries_by_date)
 with side_col:
     render_today_panel(selected_entry, selected_date)
 
@@ -1099,5 +1252,5 @@ if st.session_state.get("scroll_to_record") and selected_date:
 st.markdown("</div>", unsafe_allow_html=True)
 
 if st.session_state.get("open_dialog") and st.session_state.get("selected_entry"):
-    open_entry_dialog(st.session_state["selected_entry"])
+    open_entry_dialog(st.session_state["selected_entry"], user_id)
     st.session_state["open_dialog"] = False
