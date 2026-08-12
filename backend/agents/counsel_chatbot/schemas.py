@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -12,8 +12,12 @@ __all__ = [
     "NEUTRAL_EMOTION",
     "ConversationState",
     "CounselDraft",
+    "CounselEvidenceRef",
+    "CounselHistory",
+    "CounselHistoryTurn",
     "CounselReply",
     "CounselRequest",
+    "CounselSessionSummary",
     "CounselStage",
     "CounselTrace",
     "CounselTurn",
@@ -234,11 +238,32 @@ class CounselTrace(BaseModel):
     stage: str | None = None  # 이번 턴의 대화 단계
     knowledge_count: int = 0  # 상담 지식 조각 수
     ontology_count: int = 0  # 개인 온톨로지 관계 수
+    # 프롬프트에 실제로 들어간 일기 수와 그중 최상위 관련도.
+    diary_count: int = 0
+    diary_top_score: float | None = None
+    # 임계값에 걸러지기 **전** 후보 최고점. 임계값(DIARY_*)을 실측으로 옮기기
+    # 위한 관측값이다. 참조에 성공한 턴만 봐서는 기준을 낮출지 알 수 없다 —
+    # 아깝게 떨어진 턴이 0.67인지 0.05인지가 판단 재료다.
+    diary_top_candidate: float | None = None
     event_count: int = 0
     emotion: str | None = None  # 대표 감정 라벨만. 근거 문장은 남기지 않는다
     guardrail_hits: list[str] = Field(default_factory=list)
     stage_ms: dict[str, int] = Field(default_factory=dict)  # 단계별 소요 시간
     error_detail: str | None = None  # 실패 사유. 사용자 원문은 넣지 않는다
+
+
+class CounselEvidenceRef(BaseModel):
+    """이번 답변이 참고한 일기 한 건 (H-02).
+
+    화면에 "8월 5일 일기를 참고했어요"로 보여준다. 상담사가 과거를 언급했을 때
+    그게 어디서 왔는지 사용자가 확인할 수 있어야 한다.
+
+    요약도 본문도 싣지 않는다. 어느 날 일기인지만 알면 되고, 내용을 다시
+    화면에 펼치면 상담 답변 옆에 일기가 통째로 붙는 꼴이 된다.
+    """
+
+    session_id: str
+    diary_date: date
 
 
 class CounselReply(BaseModel):
@@ -251,6 +276,42 @@ class CounselReply(BaseModel):
     safety_level: SafetyLevel
     safety_notice: str | None = None  # 위기·주의 시 함께 보여줄 안내
     trace: CounselTrace
+    # 비어 있으면 이번 답변은 과거 기록을 참고하지 않은 것이다.
+    evidences: list[CounselEvidenceRef] = Field(default_factory=list)
+
+
+class CounselSessionSummary(BaseModel):
+    """지난 상담 하나를 목록에 한 줄로 보여주기 위한 요약.
+
+    대화 내용은 담지 않는다. 목록을 그리자고 지난 상담 스무 개의 본문을 전부
+    내려받을 이유가 없고, 그러면 화면에 쓰지도 않을 상담 기록이 클라이언트에
+    쌓인다.
+    """
+
+    counsel_id: str
+    title: str  # 첫 사용자 발화에서 만든다. 저장된 title 이 있으면 그걸 쓴다
+    last_active_at: datetime
+    turn_count: int
+    safety_level: SafetyLevel
+    is_crisis: bool
+
+
+class CounselHistoryTurn(BaseModel):
+    """지난 상담을 다시 열었을 때 화면에 그릴 한 줄.
+
+    `evidences`가 붙는 이유는 H-02다. "8월 11일 일기를 참고했어요"가 새로고침
+    한 번에 사라지면, 상담사가 과거를 어떻게 알았는지 확인할 방법이 없어진다.
+    """
+
+    role: Literal["user", "assistant"]
+    content: str
+    stage: str | None = None
+    evidences: list[CounselEvidenceRef] = Field(default_factory=list)
+
+
+class CounselHistory(BaseModel):
+    counsel_id: str
+    turns: list[CounselHistoryTurn] = Field(default_factory=list)
 
 
 def _clamp(value: object, low: float, high: float) -> object:

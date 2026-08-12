@@ -1,11 +1,12 @@
 """온톨로지 검색(RAG) 인터페이스.
 
-두 종류를 나눠 둔다. 섞으면 "일반 상담 지식"과 "이 사용자에 대한 사실"이 한
+세 종류를 나눠 둔다. 섞으면 "일반 상담 지식"과 "이 사용자에 대한 사실"이 한
 덩어리로 프롬프트에 들어가, 모델이 일반론을 사용자 개인사인 것처럼 말한다.
 """
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -39,6 +40,39 @@ class OntologyFact(BaseModel):
     evidence_diary_ids: list[str] = Field(default_factory=list)
 
 
+class DiaryReference(BaseModel):
+    """사용자가 직접 쓴 과거 일기 한 건의 요약.
+
+    본문(`DiaryVersion.content`)은 담지 않는다. 전문을 프롬프트에 부으면 상담이
+    일기 낭독이 되고, 모델이 원문을 그대로 인용하게 된다.
+
+    `diary_date`는 H-02 근거 카드와 `counsel_evidences.diary_date`가 쓴다.
+    원본 일기가 지워져도 무엇을 근거로 삼았는지는 남아야 한다.
+    """
+
+    session_id: str
+    diary_date: date
+    summary: str
+    emotion_tags: list[str] = Field(default_factory=list)
+    score: float = Field(default=0.0, ge=0, le=1)
+
+
+class DiaryLookup(BaseModel):
+    """일기 검색 한 번의 결과.
+
+    `references`만으로는 임계값을 조정할 수 없다. 참조에 실패한 턴이 아깝게
+    떨어진 것인지(0.67) 아예 무관한 것인지(0.0) 구별이 안 되는데, 임계값을
+    옮길지 말지는 **바로 그 분포**가 정한다. 그래서 걸러지기 전 최고점을 같이
+    들고 나온다.
+
+    `top_candidate_score`는 관측용이다. 프롬프트에도 화면에도 쓰지 않는다.
+    후보가 아예 없었으면(기간 안에 승인된 일기가 없음) None이다.
+    """
+
+    references: list[DiaryReference] = Field(default_factory=list)
+    top_candidate_score: float | None = Field(default=None, ge=0, le=1)
+
+
 class CounselKnowledgePort(Protocol):
     """상담 기법·가이드라인·위기 대응 규칙 검색 (사용자 무관)."""
 
@@ -66,4 +100,26 @@ class PersonalOntologyPort(Protocol):
         entities: list[str],
         max_items: int = 5,
     ) -> list[OntologyFact]:
+        ...
+
+
+class DiaryMemoryPort(Protocol):
+    """이 사용자의 과거 일기 검색 (동의·기억 범위 안). 관련도 낮으면 빈 결과.
+
+    **관련도 판정은 구현체의 책임이다.** 애매한 후보까지 돌려주고 흐름 쪽에서
+    거르게 하면, 검색 구현을 바꿀 때마다 흐름의 임계값도 같이 손봐야 한다.
+    `references`에 담아 돌려준 것은 프롬프트에 들어간다고 보면 된다.
+
+    소유권도 구현체가 지킨다 — `user_id`의 일기만 돌려줘야 한다.
+    """
+
+    async def search(
+        self,
+        *,
+        user_id: str,
+        query: str,
+        period_days: int,
+        max_items: int,
+        emotion: str | None = None,
+    ) -> DiaryLookup:
         ...

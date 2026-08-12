@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import json
 
-from backend.services.knowledge.base import KnowledgeSnippet, OntologyFact
+from backend.services.knowledge.base import (
+    DiaryReference,
+    KnowledgeSnippet,
+    OntologyFact,
+)
 from backend.agents.counsel_chatbot.schemas import (
     EMOTION_LABELS,
     ConversationState,
@@ -163,13 +167,18 @@ COUNSELOR_SYSTEM_PROMPT = """당신은 Mediary의 상담 파트너입니다.
 - 분석 결과가 실제 대화와 어긋나 보이면 대화 쪽을 믿습니다.
 
 ## 과거 이야기
-- **참고할 과거 기록이 주어지지 않습니다.** 지금 이 대화에서 사용자가 한 말
-  외에는 아는 것이 없습니다.
-- 반복 패턴을 말하지 않습니다. "매번", "늘", "항상", "예전에도",
-  "자주 그러시는 것 같네요" 같은 표현은 쓸 수 없습니다. 한 번 들은 이야기를
-  습관처럼 말하면 사용자는 자기가 그런 사람이라고 판정받았다고 느낍니다.
-- 날짜·사건을 지어내지 않습니다. 사용자가 과거를 물으면 "확인 가능한 기록이
+아래에 '사용자의 과거 기록'이 주어질 때가 있고, 주어지지 않을 때가 있습니다.
+**주어진 것만이 과거를 말할 수 있는 근거입니다.**
+
+- 기록이 없으면: 지금 이 대화에서 사용자가 한 말 외에는 아는 것이 없습니다.
+  날짜·사건을 지어내지 않고, 사용자가 과거를 물으면 "확인 가능한 기록이
   없어요"라고 말합니다.
+- 기록이 있으면: 그 안에 적힌 것만 사실로 말합니다. 목록에 없는 과거는 여전히
+  단정하지 않습니다.
+- 어느 쪽이든 반복 패턴을 함부로 말하지 않습니다. "매번", "늘", "항상",
+  "자주 그러시는 것 같네요" 같은 표현은 기록 몇 건으로 단정할 수 있는 게
+  아닙니다. 한 번 들은 이야기를 습관처럼 말하면 사용자는 자기가 그런
+  사람이라고 판정받았다고 느낍니다.
 
 ## 상담 지식
 말투와 접근 방식을 잡는 참고 자료입니다. 사용자에게 인용하거나 출처를
@@ -227,6 +236,8 @@ _STAGE_GUIDE: dict[CounselStage, str] = {
     옛날 발라드")
   - 감정에 맞춰 고릅니다. 지쳐 있으면 몸을 쉬게 하는 쪽, 마음이 복잡하면
     음악처럼 생각을 덜어주는 쪽이 낫습니다.
+  - 제안은 사용자의 과거 기록에서 실제로 편안해했거나 효과가 있었던 것과
+    자연스럽게 연결되면 더 좋습니다. 없으면 억지로 연결하지 않습니다.
 - question: 대체로 null입니다. 정리가 맞는지 가볍게 확인하고 싶을 때만
   하나 넣습니다. 제안과 질문을 같이 던지면 부담이 됩니다.""",
     CounselStage.CLOSING: """# 지금 단계 — 마무리
@@ -235,7 +246,9 @@ _STAGE_GUIDE: dict[CounselStage, str] = {
 - reply: 짧은 마무리 말 1~2문장.
 - summary: 짧게 한 줄, 필요 없으면 null.
 - suggestion: 오늘 밤 도움이 될 것 하나. 행동이거나 음악이거나.
-  suggestion_kind를 함께 채웁니다.
+  suggestion_kind를 함께 채웁니다. 사용자의 과거 기록에서 실제로 편안해했거나
+  효과가 있었던 것과 자연스럽게 연결되면 더 좋습니다. 없으면 억지로 연결하지
+  않습니다.
 - question: null. 마무리하려는 사람을 붙잡지 않습니다.""",
 }
 
@@ -319,6 +332,7 @@ def build_counselor_prompt(
     snippets: list[KnowledgeSnippet],
     facts: list[OntologyFact],
     history: list[CounselTurn],
+    diary_refs: list[DiaryReference] | None = None,
 ) -> str:
     """상담가 에이전트에 보낼 메시지."""
     parts: list[str] = []
@@ -366,6 +380,15 @@ def build_counselor_prompt(
         parts.append(
             "# 상담 지식 (참고용, 인용 금지)\n"
             + "\n".join(f"- {s.title}: {s.content}" for s in snippets)
+        )
+
+    if diary_refs:
+        parts.append(
+            "# 사용자의 과거 기록 (참고용, 관련될 때만)\n"
+            "아래는 사용자가 직접 쓴 과거 일기의 요약이다. 참고 자료일 뿐이며,\n"
+            "지금 대화와 자연스럽게 이어질 때만 활용한다. 억지로 끼워넣지 말고,\n"
+            "관련이 약하면 언급하지 않는 게 낫다. 이 목록에 없는 과거는 단정하지 말 것.\n"
+            + "\n".join(f"- [{ref.diary_date}] {ref.summary}" for ref in diary_refs)
         )
 
     if facts:

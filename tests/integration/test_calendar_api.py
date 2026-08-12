@@ -42,11 +42,17 @@ async def client(db: AsyncSession) -> AsyncClient:
     async def override_get_db():
         yield db
 
+    # `clear()` 로 끝내면 `test_preprocessing.py` 가 모듈 로드 시점에 걸어 둔
+    # 오버라이드까지 지워져, 그쪽 TestClient 가 실 DB 로 떨어진다.
+    previous = dict(app.dependency_overrides)
     app.dependency_overrides[get_db] = override_get_db
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-    app.dependency_overrides.clear()
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous)
 
 
 async def _seed_calendar_fixtures(db: AsyncSession) -> None:
@@ -253,6 +259,7 @@ async def test_diary_persistence_is_visible_in_calendar(db: AsyncSession) -> Non
     async def override_get_db():
         yield db
 
+    previous = dict(app.dependency_overrides)
     app.dependency_overrides[get_db] = override_get_db
     transport = ASGITransport(app=app)
 
@@ -310,6 +317,7 @@ async def test_diary_persistence_is_visible_in_calendar(db: AsyncSession) -> Non
         )
 
     app.dependency_overrides.clear()
+    app.dependency_overrides.update(previous)
 
     assert list_response.status_code == 200
     assert list_response.json()["summary"]["processing_entries"] == 1
