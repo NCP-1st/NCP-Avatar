@@ -9,6 +9,21 @@ from typing import Any
 import streamlit as st
 
 from api.calendar import fetch_calendar_data, fetch_calendar_entry_detail, fetch_calendar_emotions
+from api.diary import download_video
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def load_calendar_avatar_video(session_id: str, version_id: str) -> bytes:
+    return download_video(session_id, version_id)
+
+
+def get_calendar_video_version_id(detail: dict[str, Any]) -> str | None:
+    versions = detail.get("versions") or []
+    approved_versions = [version for version in versions if version.get("approved")]
+    candidates = approved_versions or versions
+    if not candidates:
+        return None
+    return candidates[0].get("version_id")
 
 
 def svg_icon(name: str, *, size: int = 18, stroke: str = "#36536B") -> str:
@@ -779,7 +794,17 @@ def open_entry_dialog(entry: dict[str, Any], user_id: str) -> None:
             unsafe_allow_html=True,
         )
         if detail.get("video_status") == "completed" and detail.get("video_url"):
-            st.video(detail["video_url"])
+            video_version_id = get_calendar_video_version_id(detail)
+            if video_version_id:
+                try:
+                    video_bytes = load_calendar_avatar_video(
+                        detail["session_id"], video_version_id
+                    )
+                    st.video(video_bytes)
+                except RuntimeError as exc:
+                    st.error(str(exc))
+            else:
+                st.caption("영상에 연결된 일기 버전을 찾을 수 없습니다.")
         elif detail.get("video_status") == "processing":
             st.info("아바타 영상 렌더링이 진행 중입니다.")
         elif detail.get("video_status") == "failed":
