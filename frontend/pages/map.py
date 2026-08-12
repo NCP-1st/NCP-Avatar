@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from api.maps_client import MapsApiError, create_diary_location, fetch_diaries
 USER_ID = "streamlit-test-user"
 DEFAULT_CENTER = (37.5512, 126.9882)
 DEFAULT_ZOOM = 12
+PAGE_SIZE = 8
 
 FILTER_OPTIONS = {
     "전체 일기": "all",
@@ -193,34 +195,93 @@ def show_location_picker(entry: dict[str, Any]) -> None:
         st.rerun()
 
 
-def _render_diary_card(entry: dict[str, Any]) -> None:
-    location_class = "location-set" if entry.get("is_located") else "location-empty"
-    location_text = "위치 설정됨" if entry.get("is_located") else "위치 미설정"
-    tags = ", ".join(entry.get("emotion_tags") or [])
-    st.markdown(
-        (
-            "<div class='diary-card'>"
-            f"<div class='diary-title'>{html.escape(entry['title'])}</div>"
-            f"<div class='diary-meta'>{entry['diary_date']} · {html.escape(tags)}</div>"
-            f"<span class='{location_class}'>{location_text}</span>"
-            "</div>"
-        ),
+def _render_diary_table(
+    diaries: list[dict[str, Any]],
+    *,
+    filter_key: str,
+) -> None:
+    page_count = max(1, (len(diaries) + PAGE_SIZE - 1) // PAGE_SIZE)
+    current_page = min(
+        max(int(st.session_state.get("map_table_page", 1)), 1),
+        page_count,
+    )
+    st.session_state["map_table_page"] = current_page
+
+    start = (current_page - 1) * PAGE_SIZE
+    page_entries = diaries[start : start + PAGE_SIZE]
+    table_rows = [
+        {
+            "날짜": str(entry["diary_date"])[5:],
+            "제목": entry["title"],
+            "위치": "설정됨" if entry.get("is_located") else "미설정",
+        }
+        for entry in page_entries
+    ]
+
+    table_event = st.dataframe(
+        table_rows,
+        column_config={
+            "날짜": st.column_config.TextColumn("날짜", width="small"),
+            "제목": st.column_config.TextColumn("제목", width="large"),
+            "위치": st.column_config.TextColumn("위치", width="small"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        height=318,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"map_diary_table_{filter_key}_{current_page}",
+    )
+
+    selected_rows = table_event.selection.rows
+    if selected_rows:
+        selected = page_entries[selected_rows[0]]
+        st.caption(f"선택한 일기 · {selected['title']}")
+        detail_col, location_col = st.columns(2)
+        if detail_col.button(
+            "일기 보기",
+            key=f"table_detail_{selected['version_id']}",
+            use_container_width=True,
+        ):
+            show_diary_detail(selected)
+        if selected.get("is_located"):
+            location_col.button(
+                "위치 설정됨",
+                key=f"table_located_{selected['version_id']}",
+                disabled=True,
+                use_container_width=True,
+            )
+        elif location_col.button(
+            "위치 설정하기",
+            key=f"table_locate_{selected['version_id']}",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state["map_location_entry"] = selected
+            st.rerun()
+    else:
+        st.caption("일기를 선택하면 상세 보기와 위치 설정 버튼이 나타납니다.")
+
+    previous_col, page_col, next_col = st.columns([1, 1.2, 1])
+    if previous_col.button(
+        "이전",
+        disabled=current_page <= 1,
+        use_container_width=True,
+        key="map_table_previous",
+    ):
+        st.session_state["map_table_page"] = current_page - 1
+        st.rerun()
+    page_col.markdown(
+        f"<div style='text-align:center;padding-top:.45rem'>{current_page} / {page_count}</div>",
         unsafe_allow_html=True,
     )
-    col_detail, col_location = st.columns(2)
-    if col_detail.button(
-        "일기 보기",
-        key=f"detail_{entry['version_id']}",
+    if next_col.button(
+        "다음",
+        disabled=current_page >= page_count,
         use_container_width=True,
+        key="map_table_next",
     ):
-        show_diary_detail(entry)
-    if not entry.get("is_located") and col_location.button(
-        "위치 설정하기",
-        key=f"locate_{entry['version_id']}",
-        type="primary",
-        use_container_width=True,
-    ):
-        st.session_state["map_location_entry"] = entry
+        st.session_state["map_table_page"] = current_page + 1
         st.rerun()
 
 
@@ -253,13 +314,21 @@ def main() -> None:
     if st.session_state.pop("map_location_saved", False):
         st.success("일기 위치를 저장했습니다.")
 
+    filter_signature = (
+        f"{FILTER_OPTIONS[filter_label]}:{keyword.strip().casefold()}"
+    )
+    if st.session_state.get("map_table_filter") != filter_signature:
+        st.session_state["map_table_filter"] = filter_signature
+        st.session_state["map_table_page"] = 1
+    filter_key = hashlib.sha1(filter_signature.encode("utf-8")).hexdigest()[:10]
+
     list_col, map_col = st.columns([1, 2], gap="large")
     with list_col:
         st.subheader(f"일기 목록 · {len(diaries)}개")
         if not diaries:
             st.info("조건에 맞는 승인된 일기가 없습니다.")
-        for entry in diaries:
-            _render_diary_card(entry)
+        else:
+            _render_diary_table(diaries, filter_key=filter_key)
 
     with map_col:
         st.subheader("저장된 위치")
