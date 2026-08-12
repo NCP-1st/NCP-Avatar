@@ -62,6 +62,17 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
             ),
             "region": env.get("NCP_OBJECT_STORAGE_REGION") or "kr-standard",
         },
+        "counsel": {
+            # 상담이 과거 일기를 참조할지 정하는 임계값. 실측으로 조정하는 값이라
+            # env로 뺀다 — 코드에 박으면 분포를 보고 옮길 때마다 배포해야 한다.
+            # 의미는 `services/knowledge/relevance.py::DiaryThresholds` 참고.
+            "diary_min_score": float(env.get("DIARY_MIN_SCORE", "0.5")),
+            "diary_min_match_tokens": int(env.get("DIARY_MIN_MATCH_TOKENS", "1")),
+            "diary_min_headline_tokens": int(
+                env.get("DIARY_MIN_HEADLINE_TOKENS", "1")
+            ),
+            "diary_strong_score": float(env.get("DIARY_STRONG_SCORE", "0.7")),
+        },
         "db": {
             "host": env.get("DB_HOST", "localhost"),
             "port": int(env.get("DB_PORT", "5432")),

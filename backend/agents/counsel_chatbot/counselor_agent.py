@@ -7,7 +7,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from backend.agents.counsel_chatbot import prompts
-from backend.services.knowledge.base import KnowledgeSnippet, OntologyFact
+from backend.services.knowledge.base import (
+    DiaryReference,
+    KnowledgeSnippet,
+    OntologyFact,
+)
 from backend.agents.counsel_chatbot.schemas import (
     ConversationState,
     CounselDraft,
@@ -37,6 +41,7 @@ class CounselorAgent:
         snippets: list[KnowledgeSnippet],
         facts: list[OntologyFact],
         history: list[CounselTurn],
+        diary_refs: list[DiaryReference] | None = None,
         violations: list[str] | None = None,
     ) -> CounselDraft:
         system = prompts.COUNSELOR_SYSTEM_PROMPT + "\n\n" + prompts.build_stage_guide(stage)
@@ -49,6 +54,7 @@ class CounselorAgent:
             snippets,
             facts,
             history,
+            diary_refs,
         )
 
         response = await generate_llm(

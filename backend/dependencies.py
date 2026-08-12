@@ -19,8 +19,11 @@ from backend.repositories import (
     SQLAlchemyConversationStore,
 )
 from backend.services.knowledge import (
+    DiaryMemoryPort,
+    DiaryThresholds,
     InMemoryCounselKnowledge,
     InMemoryPersonalOntology,
+    SqlDiaryMemory,
 )
 from backend.services.avatar import HuggingFaceSpaceAvatarAdapter
 from backend.services.speech.clova import ClovaSpeechToTextAdapter
@@ -132,8 +135,20 @@ async def get_counsel_store(
     return SQLAlchemyConversationStore(db)
 
 
+async def get_counsel_diary(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SqlDiaryMemory:
+    """상담이 참고할 과거 일기 검색기 (H-02).
+
+    상담과 일기가 같은 DB를 보므로 요청 스코프 세션을 그대로 쓴다. 관련도
+    임계값은 config에서 온다 — 실측으로 옮기는 값이라 코드에 박지 않는다.
+    """
+    return SqlDiaryMemory(db, thresholds=DiaryThresholds.from_config(load_config()))
+
+
 def get_counsel_flow(
     store: Annotated[ConversationStore, Depends(get_counsel_store)],
+    diary: Annotated[DiaryMemoryPort, Depends(get_counsel_diary)],
 ) -> CounselFlow:
     config = load_config()
     return CounselFlow(
@@ -142,4 +157,5 @@ def get_counsel_flow(
         knowledge=counsel_knowledge,
         ontology=counsel_ontology,
         store=store,
+        diary=diary,
     )

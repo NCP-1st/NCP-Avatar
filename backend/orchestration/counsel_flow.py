@@ -13,6 +13,9 @@ from backend.agents.counsel_chatbot.counselor_agent import CounselorAgent
 from backend.repositories import ConversationStore
 from backend.services.knowledge import (
     CounselKnowledgePort,
+    DiaryLookup,
+    DiaryMemoryPort,
+    DiaryReference,
     KnowledgeSnippet,
     OntologyFact,
     PersonalOntologyPort,
@@ -20,6 +23,7 @@ from backend.services.knowledge import (
 from backend.agents.counsel_chatbot.schemas import (
     ConversationState,
     CounselDraft,
+    CounselEvidenceRef,
     CounselReply,
     CounselRequest,
     CounselStage,
@@ -48,12 +52,16 @@ class CounselFlow:
         knowledge: CounselKnowledgePort,
         ontology: PersonalOntologyPort,
         store: ConversationStore,
+        diary: DiaryMemoryPort | None = None,
     ) -> None:
         self._context = context_agent
         self._counselor = counselor_agent
         self._knowledge = knowledge
         self._ontology = ontology
         self._store = store
+        # 일기 검색이 없으면 과거를 말할 근거가 없다는 뜻이다. 그 경우
+        # `safety.review_past_claims`가 계속 걸린다 (아래 5~6단계).
+        self._diary = diary
 
     async def run(self, request: CounselRequest) -> CounselReply:
         started = time.perf_counter()
@@ -133,9 +141,15 @@ class CounselFlow:
         else:
             stage = _decide_stage(history, state)
 
-        # 4. 검색 두 갈래를 동시에.
+        # 4. 검색 세 갈래를 동시에. 단계가 정해진 뒤라야 한다 — 일기 검색이
+        #    단계(opening 제외)를 보고 걸러진다.
         stage_started = time.perf_counter()
-        snippets, facts = await self._gather_context(request, state)
+        snippets, facts, diary = await self._gather_context(
+            request, state, stage=stage, session_crisis=session_crisis
+        )
+        # 아래는 "프롬프트에 들어갈 일기"만 본다. 걸러지기 전 최고점은 트레이스
+        # 전용이라 `diary`에 남겨 두고 `_trace`에만 넘긴다.
+        diary_refs = diary.references
         stage_ms["retrieval"] = _elapsed_ms(stage_started)
 
         # 5~6. 생성 + 출력 검사(위반 시 1회 재생성).
@@ -154,6 +168,7 @@ class CounselFlow:
                     snippets=snippets,
                     facts=facts,
                     history=history,
+                    diary_refs=diary_refs,
                     violations=violations if attempt else None,
                 )
             except Exception as exc:  # 모델·네트워크 실패
@@ -178,6 +193,7 @@ class CounselFlow:
                         stage=stage,
                         snippets=snippets,
                         facts=facts,
+                        diary=diary,
                         guardrail_hits=guardrail_hits,
                         stage_ms=stage_ms,
                         error_detail=f"{type(exc).__name__}: {exc}"[:300],
@@ -190,9 +206,16 @@ class CounselFlow:
 
             reply_text = _flatten(draft)
             violations = safety.review_reply(reply_text)
-            # 참고할 과거 기록이 아예 없으므로 과거 단정은 언제나 근거 없는
-            # 추측이다 (H-02). 이력 조회가 붙으면 조건부로 바꿔야 한다.
-            violations += safety.review_past_claims(reply_text)
+            # 일기가 주입되지 않은 턴에서만 과거 단정을 막는다.
+            #
+            # 주입됐으면 과거를 말할 근거가 있는 것이므로 걸면 안 된다. 걸어
+            # 버리면 근거가 확실한 문장까지 막혀서 일기를 붙인 의미가 사라진다.
+            # 반대로 임계값에 걸려 아무것도 안 들어간 턴은 근거가 없는 것이니
+            # 예전과 똑같이 막는다.
+            if not diary_refs:
+                violations += safety.review_past_claims(
+                    reply_text, grounded=_user_said(history, request.message)
+                )
 
             guardrail_hits = list(dict.fromkeys(guardrail_hits + violations))
 
@@ -240,6 +263,7 @@ class CounselFlow:
                     screening=screening,
                     snippets=snippets,
                     facts=facts,
+                    diary=diary,
                     guardrail_hits=guardrail_hits,
                     stage_ms=stage_ms,
                     trace_id=trace_id,
@@ -275,6 +299,7 @@ class CounselFlow:
                     stage=stage,
                     snippets=snippets,
                     facts=facts,
+                    diary=diary,
                     guardrail_hits=guardrail_hits,
                     stage_ms=stage_ms,
                 ),
@@ -292,6 +317,7 @@ class CounselFlow:
             screening=screening,
             snippets=snippets,
             facts=facts,
+            diary=diary,
             guardrail_hits=guardrail_hits,
             stage_ms=stage_ms,
             trace_id=trace_id,
@@ -310,6 +336,7 @@ class CounselFlow:
         screening: safety.SafetyScreening,
         snippets: list[KnowledgeSnippet],
         facts: list[OntologyFact],
+        diary: DiaryLookup,
         guardrail_hits: list[str],
         stage_ms: dict[str, int],
         trace_id: str,
@@ -326,6 +353,7 @@ class CounselFlow:
             stage=stage,
             safety_level=screening.level,
             notice=_notice_for(screening.level),
+            diary_refs=diary.references,
             trace=self._trace(
                 trace_id=trace_id,
                 started=started,
@@ -334,6 +362,7 @@ class CounselFlow:
                 stage=stage,
                 snippets=snippets,
                 facts=facts,
+                diary=diary,
                 guardrail_hits=guardrail_hits,
                 stage_ms=stage_ms,
             ),
@@ -343,29 +372,43 @@ class CounselFlow:
         self,
         request: CounselRequest,
         state: ConversationState | None,
-    ) -> tuple[list[KnowledgeSnippet], list[OntologyFact]]:
-        """상담 지식과 관계 정보를 동시에 모은다.
+        *,
+        stage: CounselStage,
+        session_crisis: bool,
+    ) -> tuple[list[KnowledgeSnippet], list[OntologyFact], DiaryLookup]:
+        """상담 지식·관계 정보·과거 일기를 동시에 모은다.
 
         한 갈래가 실패해도 나머지로 답변한다. 검색 실패가 상담 실패가 되면
         안 된다.
+
+        일기만 `DiaryLookup`으로 온다. 프롬프트에 들어갈 목록 외에 걸러지기 전
+        최고점을 트레이스가 써야 해서다 — 임계값을 실측으로 옮기려면 참조에
+        실패한 턴이 몇 점이었는지가 필요하다.
         """
-        results = await asyncio.gather(
+        knowledge_result, ontology_result, diary_result = await asyncio.gather(
             self._search_knowledge(request, state),
             self._search_ontology(request, state),
+            self._search_diary(
+                request, state, stage=stage, session_crisis=session_crisis
+            ),
             return_exceptions=True,
         )
 
         snippets: list[KnowledgeSnippet] = []
         facts: list[OntologyFact] = []
         for name, result, sink in zip(
-            ("knowledge", "ontology"), results, (snippets, facts)
+            ("knowledge", "ontology"), (knowledge_result, ontology_result), (snippets, facts)
         ):
             if isinstance(result, BaseException):
                 logger.warning("counsel %s search failed: %r", name, result)
                 continue
             sink.extend(result)
 
-        return snippets, facts
+        if isinstance(diary_result, BaseException):
+            logger.warning("counsel diary search failed: %r", diary_result)
+            diary_result = DiaryLookup()
+
+        return snippets, facts, diary_result
 
     async def _search_knowledge(
         self,
@@ -394,6 +437,53 @@ class CounselFlow:
             max_items=_ONTOLOGY_MAX,
         )
 
+    async def _search_diary(
+        self,
+        request: CounselRequest,
+        state: ConversationState | None,
+        *,
+        stage: CounselStage,
+        session_crisis: bool,
+    ) -> DiaryLookup:
+        """지금 대화와 관련 있는 과거 일기를 찾는다 (H-02).
+
+        게이트가 넷이다. 매 턴 일기를 들이대지 않기 위한 것이다.
+
+        - 구조화 실패(`state is None`): 무엇에 대한 이야기인지 모르는 상태다.
+          사용자 원문으로 검색하면 군말까지 섞여 엉뚱한 일기가 걸린다.
+        - 기억 제어 꺼짐(C-03): `_search_ontology`와 같은 기준이다.
+        - 위기 세션: 제안 경로를 막는 것과 같은 이유다. 지금 당장 위험한
+          사람에게 과거 기록을 들이밀면, 좋았던 기억이든 힘들었던 기억이든
+          지금 필요한 안전 안내에서 주의를 돌린다.
+        - opening 단계: 첫 마디에 과거부터 꺼내면 듣기 전에 아는 척하는 게
+          된다. 무슨 이야기인지 들어본 뒤에 찾는다.
+
+        관련도 판정은 검색 구현이 한다. 여기서 돌려받은 것은 그대로 프롬프트에
+        들어간다.
+        """
+        if self._diary is None:
+            return DiaryLookup()
+        if (
+            state is None
+            or not request.memory_scope.enabled
+            or session_crisis
+            or stage is CounselStage.OPENING
+        ):
+            # 게이트에 막힌 턴은 검색 자체를 하지 않았다. 후보 최고점도 None이라
+            # 관측에서 "후보가 없었다"와 구분되지 않는다 — 어느 쪽이든 임계값
+            # 조정에 쓸 표본이 아니므로 굳이 나누지 않는다.
+            return DiaryLookup()
+
+        # 구조화가 뽑은 핵심어를 우선한다. 사용자 원문은 조사·군말이 섞인다.
+        query = " ".join(state.topics) if state.topics else request.message
+        return await self._diary.search(
+            user_id=request.user_id,
+            query=query,
+            period_days=request.memory_scope.period_days,
+            max_items=request.memory_scope.max_items,
+            emotion=state.emotion.primary,
+        )
+
     async def _finish(
         self,
         *,
@@ -406,12 +496,17 @@ class CounselFlow:
         safety_level: SafetyLevel,
         notice: str | None,
         trace: CounselTrace,
+        diary_refs: list[DiaryReference] | None = None,
     ) -> CounselReply:
         """응답을 저장하고 반환한다.
 
-        어시스턴트 턴과 트레이스는 1:1이고 여기서 같은 순간에 만들어지므로
+        어시스턴트 턴·트레이스·근거는 1:1이고 여기서 같은 순간에 만들어지므로
         한 번에 넘겨 같은 트랜잭션으로 남긴다. 저장소가 트레이스를 버려도
         (인메모리 스텁) 상담은 그대로 동작한다.
+
+        `diary_refs`는 성공 경로에서만 온다. 위기·폴백 답변은 모델이 쓴 문장을
+        버리고 고정 문구로 대체한 것이라 일기를 근거로 삼지 않았다. 쓰지 않은
+        것을 근거로 기록하면 감사 기록이 거짓이 된다.
         """
         await self._store.append_turn(
             counsel_id=counsel_id,
@@ -423,6 +518,7 @@ class CounselFlow:
             ),
             trace=trace,
             safety_level=safety_level.value,
+            diary_refs=diary_refs,
         )
         return CounselReply(
             counsel_id=counsel_id,
@@ -433,6 +529,12 @@ class CounselFlow:
             safety_level=safety_level,
             safety_notice=notice,
             trace=trace,
+            evidences=[
+                CounselEvidenceRef(
+                    session_id=ref.session_id, diary_date=ref.diary_date
+                )
+                for ref in (diary_refs or [])
+            ],
         )
 
     def _trace(
@@ -447,8 +549,11 @@ class CounselFlow:
         facts: list[OntologyFact],
         guardrail_hits: list[str],
         stage_ms: dict[str, int],
+        diary: DiaryLookup | None = None,
         error_detail: str | None = None,
     ) -> CounselTrace:
+        diary = diary or DiaryLookup()
+        refs = diary.references
         return CounselTrace(
             trace_id=trace_id,
             model=self._counselor.model,
@@ -457,6 +562,15 @@ class CounselFlow:
             stage=stage.value if stage else None,
             knowledge_count=len(snippets),
             ontology_count=len(facts),
+            # 임계값 보정용. 무엇이 들어갔는지가 아니라 몇 건·얼마나 관련 있었는지만
+            # 남긴다 — 일기 내용은 트레이스에 넣지 않는다.
+            #
+            # top_score 는 실제로 쓴 일기, top_candidate 는 걸러지기 전 최고점이다.
+            # 참조가 0건인 턴은 top_score 가 없고 top_candidate 만 남는데,
+            # 임계값을 옮길지 정하는 건 그 값이다.
+            diary_count=len(refs),
+            diary_top_score=max((ref.score for ref in refs), default=None),
+            diary_top_candidate=diary.top_candidate_score,
             event_count=len(state.events) if state else 0,
             emotion=state.emotion.primary if state else None,
             guardrail_hits=guardrail_hits,
@@ -605,6 +719,17 @@ def _last_assistant_reply(history: list[CounselTurn]) -> str | None:
     """직전 상담사 발화. 같은 공감 표현을 두 턴 연속 쓰는지 볼 때 쓴다."""
     return next(
         (turn.content for turn in reversed(history) if turn.role == "assistant"), None
+    )
+
+
+def _user_said(history: list[CounselTurn], message: str) -> str:
+    """이 대화에서 **사용자가** 한 말을 모은다 (과거 단정 검사의 근거).
+
+    어시스턴트 턴은 넣지 않는다. 상담사가 앞 턴에서 꺼낸 시점을 근거로 인정하면,
+    한 번 지어낸 과거가 다음 턴부터 사실로 굳는다.
+    """
+    return " ".join(
+        [turn.content for turn in history if turn.role == "user"] + [message]
     )
 
 

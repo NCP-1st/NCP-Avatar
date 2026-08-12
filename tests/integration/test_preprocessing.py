@@ -160,7 +160,12 @@ def test_openapi_exposes_only_current_scope() -> None:
         "/diary/jobs/{job_id}",
         "/",
         "/api/calendar",
+        "/api/calendar/emotions",
+        "/api/calendar/{session_id}",
         "/api/counsel/chat",
+        # 지난 상담 목록·이력. 둘 다 읽기 전용이고 user_id 로 소유권을 거른다.
+        "/api/counsel/sessions",
+        "/api/counsel/sessions/{counsel_id}",
         "/api/maps/diaries",
         "/api/script/ai_script",
     }

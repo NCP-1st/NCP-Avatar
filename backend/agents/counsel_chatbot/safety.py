@@ -99,14 +99,70 @@ _PAST_CLAIM_PATTERN = re.compile(
     r"|(예전|과거|저번|지난\s*번)에\s*(도|는)?\s*\S*(하셨|셨)"
 )
 
+# 시점을 특정하는 표현. "요즘"·"가끔"처럼 범위가 흐린 말은 넣지 않는다 —
+# 사실을 단정하는 게 아니라 인상을 말하는 것이라 지어냈다고 볼 수 없다.
+_TIME_ANCHOR = re.compile(
+    r"지난\s*주|지난\s*달|지난\s*해|지난번|저번|엊그제|그제|어제|며칠\s*전"
+    r"|얼마\s*전|작년|재작년|올해\s*초|\d{1,2}\s*월\s*\d{1,2}\s*일"
+    r"|\d{1,2}\s*일\s*전|\d{1,2}\s*주\s*전|\d{1,2}\s*년\s*전"
+)
+_PAST_TENSE = re.compile(r"셨|했|였|었")
+# 묻는 문장은 단정이 아니다. "그때 어떤 상황이 힘들게 했나요?"를 막으면
+# 상담사가 과거를 물어볼 수가 없다.
+#
+# 물음표에만 의존하면 안 된다. 모델은 "지난주에는 어떠셨나요." 처럼 마침표로
+# 끝내기도 하는데, 그걸 단정으로 보면 멀쩡한 질문이 폴백 문구로 바뀐다.
+# 그래서 끝의 문장부호를 떼고 어미로 판정한다.
+_QUESTION_MARK = re.compile(r"[?？]")
+_QUESTION_ENDING = re.compile(r"(나요|까요|세요|을까|ㄹ까|은지|는지)$")
+_TRAILING_PUNCT = re.compile(r"[.!?？。…\s]+$")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
-def review_past_claims(text: str) -> list[str]:
+
+def review_past_claims(text: str, *, grounded: str = "") -> list[str]:
     """근거 없는 과거 단정을 찾는다.
 
     검색된 일기가 하나도 없을 때만 부른다. 일기가 있으면 과거를 말할 근거가
     있는 것이므로 이 검사를 걸면 안 된다.
+
+    두 가지를 본다.
+
+    1. 습관·반복 단정("매번", "늘 그러시죠"). 한 번 들은 이야기로 "늘 그렇다"고
+       일반화하는 건 일기가 있든 없든 상담사가 알 수 없는 것이다.
+    2. **대화에 없는 시점**을 과거 사실로 단정하는 것. `grounded`에는 이 대화에서
+       사용자가 한 말을 넘긴다.
+
+    2번에 근거 대조가 필요한 이유는 실측으로 확인했다. 시점 표현과 과거 어미만
+    보고 잡으면 운영 답변 37건 중 걸린 3건이 **전부 오탐**이었다 — 사용자가
+    "지난주에 친구들이랑 놀러 갔다"고 말한 뒤의 "지난주에 친구분들과 시간을
+    보내셨죠"는 지어낸 게 아니라 감정 반영이고, "그때 어떤 상황이 힘들게
+    했나요?"는 아예 질문이다. 상담사가 스스로 꺼낸 시점만 문제가 된다.
+
+    `grounded`를 비워 두면 사용자가 아무 말도 안 한 것으로 보고 시점 표현을
+    전부 근거 없음으로 판정한다. 호출부는 반드시 대화를 넘겨야 한다.
+
+    사용자 발화만 근거로 친다. 상담사가 앞 턴에서 한 말을 근거로 삼으면, 한 번
+    지어낸 과거가 다음 턴부터 사실로 굳는다.
     """
-    return ["past_speculation"] if _PAST_CLAIM_PATTERN.search(text) else []
+    if _PAST_CLAIM_PATTERN.search(text):
+        return ["past_speculation"]
+
+    haystack = re.sub(r"\s+", "", grounded)
+    for raw in _SENTENCE_SPLIT.split(text):
+        raw = raw.strip()
+        # 물음표는 원문에서, 어미는 부호를 뗀 쪽에서 본다. 순서를 바꾸면
+        # "어떠셨어요?" 가 부호를 잃고 단정으로 넘어간다.
+        sentence = _TRAILING_PUNCT.sub("", raw)
+        if not sentence or _QUESTION_MARK.search(raw):
+            continue
+        if _QUESTION_ENDING.search(sentence):
+            continue
+        if not _PAST_TENSE.search(sentence):
+            continue
+        for anchor in _TIME_ANCHOR.findall(sentence):
+            if re.sub(r"\s+", "", anchor) not in haystack:
+                return ["past_fabrication"]
+    return []
 
 
 # --- 안내 문구 -------------------------------------------------------------

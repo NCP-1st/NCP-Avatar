@@ -11,6 +11,7 @@ database/models.py 에서 방언별 variant 로 갈라 둔다.
 
 import importlib.util
 import io
+import re
 
 import pytest
 from alembic.migration import MigrationContext
@@ -451,35 +452,44 @@ async def test_chat_endpoint_rejects_another_users_session(db: AsyncSession) -> 
 # --- 3. 마이그레이션 --------------------------------------------------------
 
 
-def _migration_sql() -> str:
-    """f1a2c3d4e5f6 의 upgrade() 를 PostgreSQL 대상 SQL 로 뽑는다."""
-    spec = importlib.util.spec_from_file_location(
-        "counsel_migration",
-        "database/migrations/versions/f1a2c3d4e5f6_counsel_turns_and_traces.py",
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+# 상담 테이블을 만들고 이후 손대는 마이그레이션을 순서대로. 뒤에 컬럼을
+# 추가하는 리비전이 생기면 여기에 덧붙인다 — 빠뜨리면 아래 테스트가 ORM 과
+# 어긋났다고 알려준다.
+_COUNSEL_MIGRATIONS = (
+    "f1a2c3d4e5f6_counsel_turns_and_traces",
+    "b7c8d9e0f1a2_counsel_trace_diary_observability",
+)
 
+
+def _migration_sql() -> str:
+    """상담 마이그레이션들의 upgrade() 를 PostgreSQL 대상 SQL 로 뽑는다."""
     buffer = io.StringIO()
     context = MigrationContext.configure(
         dialect_name="postgresql", opts={"as_sql": True, "output_buffer": buffer}
     )
-    with Operations.context(context):
-        module.upgrade()
+    for name in _COUNSEL_MIGRATIONS:
+        spec = importlib.util.spec_from_file_location(
+            f"counsel_migration_{name}",
+            f"database/migrations/versions/{name}.py",
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with Operations.context(context):
+            module.upgrade()
     return buffer.getvalue()
 
 
-@pytest.mark.parametrize(
-    "table", ["counsel_turns", "counsel_turn_traces", "counsel_evidences"]
-)
-def test_migration_creates_the_same_columns_as_the_orm(table: str) -> None:
-    """마이그레이션과 ORM 이 갈라지면 운영에서만 터진다. 여기서 잡는다."""
-    sql = _migration_sql()
+def _migrated_columns(sql: str, table: str) -> set[str]:
+    """CREATE TABLE 로 생긴 컬럼에 나중에 ADD COLUMN 된 것까지 더한다.
+
+    CREATE TABLE 만 보면, 컬럼을 뒤에 추가하는 리비전이 붙는 순간 ORM 과
+    어긋났다고 잘못 알린다.
+    """
     start = sql.index(f"CREATE TABLE {table} (")
     body = sql[sql.index("(", start) + 1 : sql.index("\n);", start)]
 
-    migrated = {
+    columns = {
         line.strip().split()[0]
         for line in body.splitlines()
         if line.strip()
@@ -487,6 +497,18 @@ def test_migration_creates_the_same_columns_as_the_orm(table: str) -> None:
             ("PRIMARY KEY", "FOREIGN KEY", "CONSTRAINT", "UNIQUE")
         )
     }
+    columns |= set(
+        re.findall(rf"ALTER TABLE {table} ADD COLUMN (\w+)", sql)
+    )
+    return columns
+
+
+@pytest.mark.parametrize(
+    "table", ["counsel_turns", "counsel_turn_traces", "counsel_evidences"]
+)
+def test_migration_creates_the_same_columns_as_the_orm(table: str) -> None:
+    """마이그레이션과 ORM 이 갈라지면 운영에서만 터진다. 여기서 잡는다."""
+    migrated = _migrated_columns(_migration_sql(), table)
 
     assert migrated == {column.name for column in Base.metadata.tables[table].columns}
 

@@ -449,6 +449,16 @@ class CounselTurnTrace(Base):
     event_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
     )
+    diary_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    # 실제로 프롬프트에 들어간 일기 중 최상위 점수. 참조가 0건이면 NULL.
+    diary_top_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # 임계값에 걸러지기 **전** 후보 최고점. 참조에 성공한 턴은 counsel_evidences
+    # 로도 알 수 있지만, 실패한 턴이 몇 점이어서 떨어졌는지는 여기 말고는 기록이
+    # 없다. 임계값(DIARY_MIN_SCORE 등)을 실측으로 옮기려면 성공한 쪽이 아니라
+    # **아깝게 떨어진 쪽**의 분포를 봐야 한다.
+    diary_top_candidate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     guardrail_hits: Mapped[Optional[List[str]]] = mapped_column(JSONB_, nullable=True)
     stage_ms: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB_, nullable=True)
@@ -470,9 +480,9 @@ class CounselEvidence(Base):
     """어시스턴트 답변이 근거로 든 일기(H-02, C-01).
 
     diary_date 는 카드 표시용 스냅샷이다. 원본 일기가 지워져도 최소 근거는 남는다.
-    지금은 counsel_flow 에 일기 검색 갈래가 없어 비어 있다. 검색이 붙을 때 이
-    테이블에 쓰고, safety.review_past_claims 를 "검색 결과가 없을 때만" 걸도록
-    되돌린다.
+
+    참조에 **성공한** 턴만 여기에 행이 생긴다. 참조하지 않은 턴이 왜 그랬는지는
+    counsel_turn_traces.diary_count / diary_top_score 를 봐야 한다.
     """
 
     __tablename__ = "counsel_evidences"

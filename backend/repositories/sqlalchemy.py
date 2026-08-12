@@ -1,17 +1,28 @@
 """SQLAlchemy persistence helpers for the diary HTTP workflow."""
 
+from collections import defaultdict
 from datetime import date
 from typing import Optional
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.agents.counsel_chatbot.schemas import CounselTrace, CounselTurn
+from backend.agents.counsel_chatbot.schemas import (
+    CounselEvidenceRef,
+    CounselHistory,
+    CounselHistoryTurn,
+    CounselSessionSummary,
+    CounselTrace,
+    CounselTurn,
+)
 from backend.agents.diary_chatbot.models import DiaryVersion
+from backend.repositories.base import title_from_message
 from backend.api.schemas import NormalizedInputItem
+from backend.services.knowledge.base import DiaryReference
 from database.models import (
+    AvatarVideo,
+    CounselEvidence,
     CounselSession,
     CounselTurnTrace,
-    AvatarVideo,
     DiaryAudio,
     DiaryInput,
     DiarySession,
@@ -461,6 +472,7 @@ class SQLAlchemyDiaryRepository:
 _SAFETY_RANK = {"normal": 0, "caution": 1, "crisis": 2}
 
 
+
 class SQLAlchemyConversationStore:
     """상담 대화 이력 저장소 (PostgreSQL).
 
@@ -509,12 +521,14 @@ class SQLAlchemyConversationStore:
         turn: CounselTurn,
         trace: CounselTrace | None = None,
         safety_level: str | None = None,
+        diary_refs: list[DiaryReference] | None = None,
     ) -> None:
         """대화 한 줄을 덧붙인다. 세션이 없으면 만든다.
 
-        `trace` 가 오면 어시스턴트 턴과 같은 트랜잭션으로 트레이스를 남긴다.
-        턴과 트레이스는 1:1이고 같은 순간에 만들어지므로 따로 커밋하면
-        한쪽만 남을 수 있다.
+        `trace` 와 `diary_refs` 가 오면 어시스턴트 턴과 같은 트랜잭션으로
+        남긴다. 턴과 트레이스는 1:1이고 같은 순간에 만들어지므로 따로 커밋하면
+        한쪽만 남을 수 있다. 근거도 마찬가지다 — 답변은 남았는데 무엇을 근거로
+        했는지가 사라지면 H-02를 지킬 수 없다.
         """
         session = await self._session_for_write(counsel_id, user_id)
 
@@ -531,8 +545,24 @@ class SQLAlchemyConversationStore:
         if safety_level is not None:
             self._raise_safety(session, safety_level)
 
-        if trace is not None:
+        if trace is not None or diary_refs:
             await self.db.flush()  # orm_turn.turn_id 확보
+
+        if diary_refs:
+            self.db.add_all(
+                [
+                    CounselEvidence(
+                        turn_id=orm_turn.turn_id,
+                        diary_session_id=ref.session_id,
+                        # 카드 표시용 스냅샷. 원본 일기가 지워져도 근거는 남는다.
+                        diary_date=ref.diary_date,
+                        relevance_score=ref.score,
+                    )
+                    for ref in diary_refs
+                ]
+            )
+
+        if trace is not None:
             self.db.add(
                 CounselTurnTrace(
                     turn_id=orm_turn.turn_id,
@@ -548,6 +578,13 @@ class SQLAlchemyConversationStore:
                     knowledge_count=trace.knowledge_count,
                     ontology_count=trace.ontology_count,
                     event_count=trace.event_count,
+                    # diary_refs 가 아니라 trace 에서 가져온다. 참조가 0건인
+                    # 턴에도 후보 최고점(diary_top_candidate)이 실려 오는데,
+                    # 임계값 조정에 필요한 건 바로 그 값이다. diary_refs 는
+                    # 걸러진 뒤라 그런 턴에서는 비어 있다.
+                    diary_count=trace.diary_count,
+                    diary_top_score=trace.diary_top_score,
+                    diary_top_candidate=trace.diary_top_candidate,
                     guardrail_hits=trace.guardrail_hits,
                     stage_ms=trace.stage_ms,
                     error_detail=trace.error_detail,
@@ -555,6 +592,124 @@ class SQLAlchemyConversationStore:
             )
 
         await self.db.commit()
+
+    async def list_sessions(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[CounselSessionSummary]:
+        # ix_counsel_sessions_user_active (user_id, last_active_at) 를 탄다.
+        turn_counts = (
+            select(
+                ORMCounselTurn.counsel_id,
+                func.count().label("turn_count"),
+            )
+            .group_by(ORMCounselTurn.counsel_id)
+            .subquery()
+        )
+        # 제목이 비어 있으면 첫 사용자 발화로 만든다. 기존 세션은 title 이
+        # 전부 NULL 이라, 저장 시점에 채우는 방식으로는 지난 상담이 전부
+        # 제목 없이 남는다.
+        first_message = (
+            select(ORMCounselTurn.content)
+            .where(
+                ORMCounselTurn.counsel_id == CounselSession.counsel_id,
+                ORMCounselTurn.role == "user",
+            )
+            .order_by(ORMCounselTurn.turn_id)
+            .limit(1)
+            .correlate(CounselSession)
+            .scalar_subquery()
+        )
+
+        rows = (
+            await self.db.execute(
+                select(
+                    CounselSession,
+                    turn_counts.c.turn_count,
+                    first_message.label("first_message"),
+                )
+                .join(
+                    turn_counts,
+                    turn_counts.c.counsel_id == CounselSession.counsel_id,
+                )
+                .where(CounselSession.user_id == user_id)
+                .order_by(desc(CounselSession.last_active_at))
+                .limit(limit)
+            )
+        ).all()
+
+        return [
+            CounselSessionSummary(
+                counsel_id=row[0].counsel_id,
+                title=row[0].title or title_from_message(row.first_message),
+                last_active_at=row[0].last_active_at,
+                turn_count=row.turn_count,
+                safety_level=row[0].safety_level,
+                is_crisis=row[0].is_crisis,
+            )
+            for row in rows
+        ]
+
+    async def load_history(
+        self,
+        *,
+        counsel_id: str,
+        user_id: str,
+    ) -> CounselHistory:
+        session = await self.db.get(CounselSession, counsel_id)
+        if session is None or session.user_id != user_id:
+            # 없는 상담과 남의 상담을 같은 예외로 묶는다. 갈라 주면 counsel_id
+            # 를 훑어 남의 세션 존재 여부를 알아낼 수 있다.
+            raise PermissionError("이 상담 세션에 접근할 수 없습니다")
+
+        turns = (
+            await self.db.execute(
+                select(ORMCounselTurn)
+                .where(ORMCounselTurn.counsel_id == counsel_id)
+                .order_by(ORMCounselTurn.turn_id)
+            )
+        ).scalars().all()
+
+        # 근거는 턴 하나에 여러 개 붙을 수 있어 따로 읽어 묶는다. 턴마다
+        # 조회하면 대화 길이만큼 쿼리가 늘어난다.
+        evidence_rows = (
+            await self.db.execute(
+                select(CounselEvidence)
+                .join(
+                    ORMCounselTurn,
+                    ORMCounselTurn.turn_id == CounselEvidence.turn_id,
+                )
+                .where(ORMCounselTurn.counsel_id == counsel_id)
+                .order_by(CounselEvidence.evidence_id)
+            )
+        ).scalars().all()
+
+        by_turn: dict[int, list[CounselEvidenceRef]] = defaultdict(list)
+        for row in evidence_rows:
+            if row.diary_session_id is None or row.diary_date is None:
+                # 원본 일기가 지워지면 diary_session_id 가 NULL 로 풀린다.
+                # 화면에 그릴 게 없으므로 내보내지 않는다.
+                continue
+            by_turn[row.turn_id].append(
+                CounselEvidenceRef(
+                    session_id=row.diary_session_id, diary_date=row.diary_date
+                )
+            )
+
+        return CounselHistory(
+            counsel_id=counsel_id,
+            turns=[
+                CounselHistoryTurn(
+                    role=turn.role,
+                    content=turn.content,
+                    stage=turn.stage,
+                    evidences=by_turn.get(turn.turn_id, []),
+                )
+                for turn in turns
+            ],
+        )
 
     async def mark_crisis(self, *, counsel_id: str, user_id: str) -> None:
         session = await self._session_for_write(counsel_id, user_id)

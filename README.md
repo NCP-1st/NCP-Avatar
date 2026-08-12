@@ -101,7 +101,7 @@
 |------|----------|-----------|
 | Frontend | Streamlit | 빠른 프로토타이핑, 채팅·캘린더·지도 화면 우선 |
 | Backend | FastAPI | 기능별 API 분리, 비동기 작업 상태 조회, 인증·권한 |
-| Database | Naver Cloud DB for MySQL | 정형 데이터 저장 (필요 시 Graph DB 확장) |
+| Database | Naver Cloud DB for PostgreSQL (asyncpg) | 정형 데이터 저장 (필요 시 Graph DB 확장) |
 | Object Storage | Naver Object Storage | 원본 미디어·영상 저장, DB에는 경로·메타데이터만 |
 | AI | CLOVA Studio HCX-005/007 / Speech / Voice | 멀티모달 이해, 구조화·생성, STT, TTS |
 | Map | Naver Maps | 좌표 선택, 메시지 핀, 반경 내 접근 제어 |
