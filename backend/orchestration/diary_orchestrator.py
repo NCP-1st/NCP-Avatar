@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Protocol
 from uuid import uuid4
 
 from backend.agents.diary_chatbot import DiaryGenerationAgent, MultimodalChatAgent
@@ -17,6 +18,10 @@ from backend.services.storage import StorageAdapter
 from backend.services.voice import VoiceAdapter
 
 MAX_DIARY_VERSIONS = 3
+
+
+class DiaryEmbeddingIndexer(Protocol):
+    async def index_diary(self, *, version_id: str, content: str) -> None: ...
 
 
 @dataclass
@@ -212,7 +217,13 @@ class DiaryOrchestrator:
         state.workflow.mark_drafted()
         return version
 
-    def approve(self, state: DiaryOrchestrationState, version: DiaryVersion) -> DiaryVersion:
+    async def approve(
+        self,
+        state: DiaryOrchestrationState,
+        version: DiaryVersion,
+        *,
+        embedding_service: DiaryEmbeddingIndexer | None = None,
+    ) -> DiaryVersion:
         if version.session_id != state.session_id:
             raise ValueError("version does not belong to this session")
         approved = version.model_copy(update={"approved": True})
@@ -224,6 +235,11 @@ class DiaryOrchestrator:
         ]
         if state.workflow.stage is WorkflowStage.DRAFTED:
             state.workflow.approve()
+        if embedding_service is not None:
+            await embedding_service.index_diary(
+                version_id=approved.version_id,
+                content=approved.content,
+            )
         return approved
 
     async def render(self, version: DiaryVersion, *, voice_id: str = "default") -> RenderResult:

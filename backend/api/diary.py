@@ -34,22 +34,24 @@ from backend.dependencies import (
     generation_tasks,
     get_diary_media_orchestrator,
     get_diary_deletion_orchestrator,
+    get_diary_embedding_service,
     get_diary_orchestrator,
     get_media_storage_adapter,
     get_pipeline,
     media_jobs,
     media_tasks,
 )
-from backend.orchestration.diary_media import DiaryMediaOrchestrator
 from backend.orchestration.diary_deletion import (
     DiaryDeletionOrchestrator,
     DiaryMediaProcessingError,
 )
+from backend.orchestration.diary_media import DiaryMediaOrchestrator
 from backend.orchestration.diary_orchestrator import (
     MAX_DIARY_VERSIONS,
     DiaryOrchestrator,
 )
 from backend.services.storage import StorageAdapter
+from backend.services.embedding import DiaryEmbeddingService
 from backend.orchestration.diary_pipeline import DiaryPipeline
 from backend.repositories.sqlalchemy import SQLAlchemyDiaryRepository
 from database.conn.db import AsyncSessionLocal, get_db
@@ -522,6 +524,9 @@ async def approve_diary_version(
     media_orchestrator: DiaryMediaOrchestrator = Depends(
         get_diary_media_orchestrator
     ),
+    embedding_service: DiaryEmbeddingService = Depends(
+        get_diary_embedding_service
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> DiaryApprovalResponse:
     await require_session(session_id, pipeline, db)
@@ -537,13 +542,18 @@ async def approve_diary_version(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     state = diary_states.get(session_id)
-    if state is not None:
-        in_memory = next(
-            (item for item in state.versions if item.version_id == version_id),
-            None,
-        )
-        if in_memory is not None and state.stage is WorkflowStage.DRAFTED:
-            selected = orchestrator.approve(state, in_memory)
+    if state is None:
+        state = orchestrator.start_session(session_id)
+        diary_states[session_id] = state
+    state.versions = await repository.get_versions(session_id)
+    in_memory = next(
+        item for item in state.versions if item.version_id == version_id
+    )
+    selected = await orchestrator.approve(
+        state,
+        in_memory,
+        embedding_service=embedding_service,
+    )
 
     job_id = str(uuid4())
     media_jobs[job_id] = {
