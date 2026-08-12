@@ -1,8 +1,15 @@
-from backend.services.maps.schemas import DiaryPin, DiaryPinCreate
-from backend.services.maps.store import DiaryStore
+from backend.services.maps.schemas import (
+    DiaryLocationCreate,
+    DiaryMapEntry,
+    DiaryPin,
+    DiaryPinCreate,
+    LocationStatus,
+)
 
 __all__ = [
+    "DiaryLocationCreate",
+    "DiaryMapEntry",
     "DiaryPin",
     "DiaryPinCreate",
-    "DiaryStore",
+    "LocationStatus",
 ]

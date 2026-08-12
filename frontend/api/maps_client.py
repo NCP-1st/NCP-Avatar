@@ -1,49 +1,90 @@
-"""지도 일기 백엔드 API 클라이언트.
-
-페이지에서 직접 HTTP를 호출하지 않고 이 모듈을 경유한다 (CLAUDE.md 배치 원칙).
-백엔드 주소는 MEDIARY_API_URL 환경변수로 바꿀 수 있다 (기본 localhost:8000).
-"""
+"""HTTP client for the map diary API."""
 
 from __future__ import annotations
 
 import os
+from typing import Any, Literal
 
 import requests
 
-BASE_URL = os.environ.get("MEDIARY_API_URL", "http://127.0.0.1:8000")
-_TIMEOUT_S = 5
+BASE_URL = os.environ.get(
+    "MEDIARY_API_BASE_URL",
+    os.environ.get("MEDIARY_API_URL", "http://127.0.0.1:8000"),
+).rstrip("/")
+_TIMEOUT_S = 10
+LocationStatus = Literal["all", "located", "unlocated"]
 
 
 class MapsApiError(RuntimeError):
-    """지도 일기 API 호출 실패."""
+    """Raised when the map diary API cannot complete a request."""
 
 
-def fetch_diaries() -> list[dict]:
-    """저장된 일기 목록을 조회한다."""
+def _error_detail(response: requests.Response) -> str:
     try:
-        res = requests.get(f"{BASE_URL}/api/maps/diaries", timeout=_TIMEOUT_S)
-        res.raise_for_status()
-        return res.json()
-    except requests.RequestException as e:
-        raise MapsApiError(f"일기 목록 조회 실패: {e}") from e
+        payload = response.json()
+    except ValueError:
+        return response.text.strip() or f"HTTP {response.status_code}"
+    detail = payload.get("detail") if isinstance(payload, dict) else payload
+    return str(detail or f"HTTP {response.status_code}")
 
 
-def create_diary(
-    title: str, summary: str, emotion: str, lat: float, lng: float
-) -> dict:
-    """지정한 위치에 일기를 저장하고, 서버가 부여한 id/날짜가 포함된 일기를 반환한다."""
-    payload = {
-        "title": title,
-        "summary": summary,
-        "emotion": emotion,
-        "lat": round(lat, 6),
-        "lng": round(lng, 6),
+def fetch_diaries(
+    user_id: str,
+    *,
+    location_status: LocationStatus = "all",
+    keyword: str = "",
+) -> list[dict[str, Any]]:
+    params = {
+        "user_id": user_id,
+        "location_status": location_status,
+        "keyword": keyword,
     }
     try:
-        res = requests.post(
-            f"{BASE_URL}/api/maps/diaries", json=payload, timeout=_TIMEOUT_S
+        response = requests.get(
+            f"{BASE_URL}/api/maps/diaries",
+            params=params,
+            timeout=_TIMEOUT_S,
         )
-        res.raise_for_status()
-        return res.json()
-    except requests.RequestException as e:
-        raise MapsApiError(f"일기 저장 실패: {e}") from e
+    except requests.RequestException as exc:
+        raise MapsApiError(f"지도 일기 목록을 불러오지 못했습니다: {exc}") from exc
+    if not response.ok:
+        raise MapsApiError(f"지도 일기 조회 실패: {_error_detail(response)}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise MapsApiError("지도 API가 올바른 JSON을 반환하지 않았습니다.") from exc
+    if not isinstance(payload, list):
+        raise MapsApiError("지도 API 응답 형식이 올바르지 않습니다.")
+    return payload
+
+
+def create_diary_location(
+    *,
+    user_id: str,
+    version_id: str,
+    latitude: float,
+    longitude: float,
+) -> dict[str, Any]:
+    payload = {
+        "user_id": user_id,
+        "version_id": version_id,
+        "latitude": round(latitude, 8),
+        "longitude": round(longitude, 8),
+    }
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/maps/diaries",
+            json=payload,
+            timeout=_TIMEOUT_S,
+        )
+    except requests.RequestException as exc:
+        raise MapsApiError(f"일기 위치를 저장하지 못했습니다: {exc}") from exc
+    if not response.ok:
+        raise MapsApiError(f"일기 위치 저장 실패: {_error_detail(response)}")
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise MapsApiError("지도 API가 올바른 JSON을 반환하지 않았습니다.") from exc
+    if not isinstance(result, dict):
+        raise MapsApiError("지도 API 응답 형식이 올바르지 않습니다.")
+    return result

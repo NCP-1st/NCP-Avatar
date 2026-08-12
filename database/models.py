@@ -146,6 +146,13 @@ class DiaryVersion(Base):
         single_parent=True,
         uselist=False,
     )
+    location_message: Mapped[Optional["LocationMessage"]] = relationship(
+        "LocationMessage",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        single_parent=True,
+        uselist=False,
+    )
 
 
 class NarrationScript(Base):
@@ -290,23 +297,30 @@ class AvatarVideo(Base):
 
 class LocationMessage(Base):
     __tablename__ = "location_messages"
+    __table_args__ = (
+        UniqueConstraint("version_id", name="uq_location_messages_version_id"),
+    )
 
-    message_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    map_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     session_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("diary_sessions.session_id", ondelete="SET NULL"), nullable=True)
+    version_id: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("diary_versions.version_id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
     # Geography details
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 8), nullable=False)
     longitude: Mapped[Decimal] = mapped_column(Numeric(11, 8), nullable=False)
-    radius: Mapped[float] = mapped_column(Float, default=100.0)  # Lock-unlock radius threshold in meters
-
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    audio_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="location_messages")
     session: Mapped[Optional["DiarySession"]] = relationship("DiarySession", back_populates="location_messages")
+    version: Mapped["DiaryVersion"] = relationship(
+        "DiaryVersion", back_populates="location_message"
+    )
 
 
 class CounselSession(Base):
