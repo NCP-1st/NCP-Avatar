@@ -1,1 +1,12 @@
-Generic single-database configuration.
+Alembic migrations for Mediary.
+
+Target database: PostgreSQL (Naver Cloud DB for PostgreSQL, asyncpg in app code).
+Apply with:
+
+```bash
+alembic -c database/migrations/alembic.ini upgrade head
+```
+
+Local/tests may use SQLite via SQLAlchemy ``create_all`` without running Alembic.
+
+Session status mapping for calendar (K-01) lives in ``database/session_status.py``.
