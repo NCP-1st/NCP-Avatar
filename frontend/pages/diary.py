@@ -1,4 +1,5 @@
 from datetime import date
+from pathlib import Path
 import time
 
 import streamlit as st
@@ -6,6 +7,7 @@ import streamlit as st
 from api.diary import (
     approve_version,
     delete_version,
+    download_video,
     create_session,
     confirm_transcript,
     get_job,
@@ -21,6 +23,22 @@ from api.diary import (
 st.title("📔 일기 채팅")
 st.caption("HCX-005와 대화한 뒤 HCX-007이 오늘의 일기를 정리합니다.")
 
+CHARACTER_DIR = Path(__file__).resolve().parents[2] / "backend" / "character"
+CHARACTERS = {
+    "char_1": ("캐릭터 1", CHARACTER_DIR / "char_1.png"),
+    "char_2": ("캐릭터 2", CHARACTER_DIR / "char_2.png"),
+    "char_3": ("캐릭터 3", CHARACTER_DIR / "char_3.png"),
+}
+VOICES = {
+    "아라 · 기본 여성": "nara",
+    "아라 · Pro 여성": "vara",
+    "미경 · Pro 여성": "vmikyung",
+    "다인 · 여성": "vdain",
+    "유나 · 여성": "vyuna",
+    "동현 · 남성": "vdonghyun",
+    "대성 · 남성": "vdaeseong",
+}
+
 
 def start_new_diary() -> None:
     session = create_session("streamlit-test-user", date.today())
@@ -35,6 +53,9 @@ def start_new_diary() -> None:
     st.session_state.diary_script_result = None
     st.session_state.diary_versions = stored_versions
     st.session_state.diary_show_versions = False
+    st.session_state.diary_render_version_id = None
+    st.session_state.diary_character_id = "char_1"
+    st.session_state.diary_voice_label = "동현 · 남성"
     st.session_state.diary_pending_audio = None
     st.session_state.diary_audio_editing = False
 
@@ -61,21 +82,87 @@ st.session_state.setdefault("diary_audio_editing", False)
 st.session_state.setdefault("diary_script_result", None)
 st.session_state.setdefault("diary_versions", [])
 st.session_state.setdefault("diary_show_versions", False)
+st.session_state.setdefault("diary_render_version_id", None)
+st.session_state.setdefault("diary_character_id", "char_1")
+st.session_state.setdefault("diary_voice_label", "동현 · 남성")
 
 
-def wait_for_generation(job: dict) -> dict:
-    for _ in range(60):
+def wait_for_generation(job: dict, *, timeout_seconds: int = 600) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
         job_status = get_job(job["job_id"])
         if job_status["status"] == "completed":
             return job_status["result"]
         if job_status["status"] == "failed":
-            raise RuntimeError(job_status.get("error_code") or "generation failed")
-        time.sleep(0.5)
-    raise TimeoutError("일기 생성 시간이 초과됐습니다.")
+            error_code = job_status.get("error_code") or "generation failed"
+            error_message = job_status.get("error_message")
+            raise RuntimeError(
+                f"{error_code}: {error_message}" if error_message else error_code
+            )
+        time.sleep(1)
+    raise TimeoutError("나레이션·영상 생성 시간이 초과됐습니다.")
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def load_avatar_video(session_id: str, version_id: str) -> bytes:
+    return download_video(session_id, version_id)
 
 
 def close_version_picker() -> None:
     st.session_state.diary_show_versions = False
+    st.session_state.diary_render_version_id = None
+
+
+def render_media_selector(version: dict) -> None:
+    if st.button("← 일기 후보로 돌아가기", use_container_width=True):
+        st.session_state.diary_render_version_id = None
+        st.rerun()
+
+    st.subheader(version["title"])
+    st.caption("영상에 사용할 캐릭터와 목소리를 선택해 주세요.")
+
+    st.markdown("#### 캐릭터 선택")
+    columns = st.columns(len(CHARACTERS))
+    for column, (character_id, (label, image_path)) in zip(columns, CHARACTERS.items()):
+        with column:
+            st.image(str(image_path), use_container_width=True)
+            selected = st.session_state.diary_character_id == character_id
+            if st.button(
+                f"{'✓ ' if selected else ''}{label}",
+                key=f"character-{character_id}",
+                type="primary" if selected else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.diary_character_id = character_id
+                st.rerun()
+
+    st.markdown("#### 음성 선택")
+    st.session_state.diary_voice_label = st.radio(
+        "목소리",
+        options=list(VOICES),
+        index=list(VOICES).index(st.session_state.diary_voice_label),
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    if st.button("선택한 캐릭터와 음성으로 영상 만들기", type="primary", use_container_width=True):
+        try:
+            selected = approve_version(
+                st.session_state.diary_session_id,
+                version["version_id"],
+                character_id=st.session_state.diary_character_id,
+                voice_id=VOICES[st.session_state.diary_voice_label],
+            )
+            st.session_state.diary_result = selected
+            with st.spinner("나레이션 음성과 아바타 영상을 만들고 있어요..."):
+                st.session_state.diary_script_result = wait_for_generation(
+                    {"job_id": selected["media_job_id"]}
+                )
+            st.session_state.diary_render_version_id = None
+            st.session_state.diary_show_versions = False
+            st.rerun()
+        except Exception as exc:
+            st.error(f"영상 생성에 실패했습니다: {exc}")
 
 
 @st.dialog(
@@ -90,6 +177,17 @@ def show_version_picker() -> None:
     if not versions:
         st.info("아직 작성된 일기가 없어요. 오늘의 일기를 작성해 주세요!")
         return
+    selected_version_id = st.session_state.diary_render_version_id
+    if selected_version_id:
+        selected_version = next(
+            (item for item in versions if item["version_id"] == selected_version_id),
+            None,
+        )
+        if selected_version is None:
+            st.session_state.diary_render_version_id = None
+        else:
+            render_media_selector(selected_version)
+            return
     st.caption(
         f"최대 {version_data['max_versions']}개까지 만들 수 있어요. "
         "마음에 드는 하나를 오늘의 일기로 확정해 주세요."
@@ -123,22 +221,13 @@ def show_version_picker() -> None:
             if version.get("emotion_tags"):
                 st.caption("감정 태그: " + ", ".join(version["emotion_tags"]))
             if st.button(
-                "확정된 일기" if version["approved"] else "이 일기를 오늘의 일기로 확정",
+                "확정된 일기" if version["approved"] else "일기 생성하기",
                 key=f"approve-{version['version_id']}",
                 type="primary" if not version["approved"] else "secondary",
                 disabled=version["approved"],
                 use_container_width=True,
             ):
-                selected = approve_version(
-                    st.session_state.diary_session_id,
-                    version["version_id"],
-                )
-                st.session_state.diary_result = selected
-                with st.spinner("확정한 일기의 나레이션 대본을 만들고 있어요..."):
-                    st.session_state.diary_script_result = wait_for_generation(
-                        {"job_id": selected["media_job_id"]}
-                    )
-                st.session_state.diary_show_versions = False
+                st.session_state.diary_render_version_id = version["version_id"]
                 st.rerun()
 
     if version_data["can_create_new_version"]:
@@ -423,18 +512,33 @@ if st.session_state.diary_result:
         st.write(script_result["narration_text"])
         if script_result.get("audio_url"):
             st.audio(script_result["audio_url"])
+        if script_result.get("video_url"):
+            st.markdown("#### 🎬 아바타 영상")
+            try:
+                st.video(
+                    load_avatar_video(
+                        st.session_state.diary_session_id,
+                        script_result["version_id"],
+                    ),
+                    format="video/mp4",
+                )
+            except RuntimeError as exc:
+                st.error(str(exc))
         st.caption(
             f"예상 길이: {script_result['target_duration_seconds']}초 · "
+            f"실제 영상: {script_result.get('duration_seconds', 0)}초 · "
             f"대표 감정: {script_result['emotion']}"
         )
     elif result.get("approved"):
         st.warning("나레이션 대본을 아직 생성하지 못했습니다.")
         if st.button("나레이션 대본 다시 생성"):
             try:
-                with st.spinner("나레이션 대본을 작성하고 있어요..."):
+                with st.spinner("나레이션 음성과 아바타 영상을 만들고 있어요..."):
                     retry = approve_version(
                         st.session_state.diary_session_id,
                         result["version_id"],
+                        character_id=st.session_state.diary_character_id,
+                        voice_id=VOICES[st.session_state.diary_voice_label],
                     )
                     st.session_state.diary_script_result = wait_for_generation(
                         {"job_id": retry["media_job_id"]}

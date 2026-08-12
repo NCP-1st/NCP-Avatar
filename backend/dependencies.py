@@ -10,6 +10,7 @@ from backend.agents.diary_chatbot.write_script import Hcx007ScriptGenerationAgen
 from backend.config import load_config
 from backend.orchestration.counsel_flow import CounselFlow
 from backend.orchestration.diary_media import DiaryMediaOrchestrator
+from backend.orchestration.diary_deletion import DiaryDeletionOrchestrator
 from backend.orchestration.diary_orchestrator import DiaryOrchestrationState, DiaryOrchestrator
 from backend.orchestration.diary_pipeline import DiaryPipeline
 from backend.repositories import (
@@ -21,8 +22,9 @@ from backend.services.knowledge import (
     InMemoryCounselKnowledge,
     InMemoryPersonalOntology,
 )
+from backend.services.avatar import HuggingFaceSpaceAvatarAdapter
 from backend.services.speech.clova import ClovaSpeechToTextAdapter
-from backend.services.storage import NcpObjectStorageAdapter
+from backend.services.storage import NcpObjectStorageAdapter, StorageAdapter
 from backend.services.storage.inline import InlineDataUrlStorageAdapter
 from database.conn.db import get_db
 from backend.services.voice import ClovaVoiceAdapter
@@ -54,11 +56,24 @@ diary_orchestrator = DiaryOrchestrator(
 )
 
 media_config = load_config()
+avatar_config = media_config["avatar"]
+media_storage_adapter = NcpObjectStorageAdapter(media_config["object_storage"])
 diary_media_orchestrator = DiaryMediaOrchestrator(
     script_agent=Hcx007ScriptGenerationAgent(media_config),
     voice_adapter=ClovaVoiceAdapter(media_config),
-    storage_adapter=NcpObjectStorageAdapter(media_config["object_storage"]),
+    storage_adapter=media_storage_adapter,
+    avatar_adapter=HuggingFaceSpaceAvatarAdapter(
+        source_image=avatar_config["image_path"],
+        space_id=avatar_config["space_id"],
+        api_name=avatar_config["api_name"],
+        token=avatar_config["token"],
+        timeout_s=avatar_config["timeout_s"],
+        audio_suffix=".mp3",
+    ),
     config=media_config,
+)
+diary_deletion_orchestrator = DiaryDeletionOrchestrator(
+    storage_adapter=media_storage_adapter,
 )
 
 
@@ -72,6 +87,14 @@ def get_diary_orchestrator() -> DiaryOrchestrator:
 
 def get_diary_media_orchestrator() -> DiaryMediaOrchestrator:
     return diary_media_orchestrator
+
+
+def get_diary_deletion_orchestrator() -> DiaryDeletionOrchestrator:
+    return diary_deletion_orchestrator
+
+
+def get_media_storage_adapter() -> StorageAdapter:
+    return media_storage_adapter
 
 
 # --- 상담 -----------------------------------------------------------------

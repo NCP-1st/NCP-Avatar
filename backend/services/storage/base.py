@@ -14,3 +14,11 @@ class StoredObject:
 class StorageAdapter(ABC):
     @abstractmethod
     async def upload(self, data: bytes, *, object_name: str, mime_type: str) -> StoredObject: ...
+
+    async def download(self, *, object_name: str) -> bytes:
+        """Read an object back for a downstream media-processing step."""
+        raise NotImplementedError("storage download is not configured")
+
+    async def delete(self, *, object_name: str) -> None:
+        """Delete an object; implementations must treat an absent key as success."""
+        raise NotImplementedError("storage delete is not configured")

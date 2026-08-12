@@ -16,6 +16,11 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
     path = Path(env_path) if env_path else _ENV_PATH
     file_values = {key: value for key, value in dotenv_values(path).items() if value is not None}
     env = {**file_values, **os.environ}
+    avatar_image_path = Path(
+        env.get("HF_AVATAR_IMAGE_PATH") or "backend/character/char_1.png"
+    )
+    if not avatar_image_path.is_absolute():
+        avatar_image_path = path.resolve().parent / avatar_image_path
     return {
         "llm": {
             "provider": "clova_native",
@@ -38,6 +43,13 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
             ),
             "client_id": env.get("CLOVA_VOICE_CLIENT_ID", ""),
             "client_secret": env.get("CLOVA_VOICE_CLIENT_SECRET", ""),
+        },
+        "avatar": {
+            "space_id": env.get("HF_AVATAR_SPACE_ID") or "pragnakalp/Wav2lip-ZeroGPU",
+            "api_name": env.get("HF_AVATAR_API_NAME") or "/run_infrence",
+            "token": env.get("HF_TOKEN") or env.get("ACCESS_TOCKEN", ""),
+            "timeout_s": float(env.get("HF_AVATAR_TIMEOUT_SECONDS") or "180"),
+            "image_path": str(avatar_image_path.resolve()),
         },
         "object_storage": {
             "access_key": env.get("NCP_ACCESS_KEY", ""),

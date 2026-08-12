@@ -11,6 +11,7 @@ from backend.api.schemas import NormalizedInputItem
 from database.models import (
     CounselSession,
     CounselTurnTrace,
+    AvatarVideo,
     DiaryAudio,
     DiaryInput,
     DiarySession,
@@ -121,6 +122,47 @@ class SQLAlchemyDiaryRepository:
         if stored is None:
             return None
         return self._to_domain(stored)
+
+    async def get_version_media_object_keys(
+        self,
+        *,
+        session_id: str,
+        version_id: str,
+    ) -> list[str]:
+        stored = await self.db.get(ORMDiaryVersion, version_id)
+        if stored is None or stored.session_id != session_id:
+            raise ValueError("diary version to delete was not found in this session")
+
+        videos = list(
+            (
+                await self.db.execute(
+                    select(AvatarVideo).where(AvatarVideo.version_id == version_id)
+                )
+            ).scalars()
+        )
+        script = await self.get_narration_script(version_id)
+        audios = []
+        if script is not None:
+            audios = list(
+                (
+                    await self.db.execute(
+                        select(DiaryAudio).where(DiaryAudio.script_id == script.script_id)
+                    )
+                ).scalars()
+            )
+
+        if any(item.status == "processing" for item in [*videos, *audios]) or (
+            script is not None and script.status == "processing"
+        ):
+            raise RuntimeError("media generation is still processing")
+
+        return sorted(
+            {
+                item.object_key
+                for item in [*videos, *audios]
+                if item.object_key
+            }
+        )
 
     async def delete_version(self, *, session_id: str, version_id: str) -> None:
         stored = await self.db.get(ORMDiaryVersion, version_id)
@@ -291,6 +333,79 @@ class SQLAlchemyDiaryRepository:
             audio.status = "failed"
             audio.error_code = error_code
             await self.db.commit()
+
+    async def get_avatar_video(self, version_id: str) -> AvatarVideo | None:
+        return await self.db.scalar(
+            select(AvatarVideo)
+            .where(AvatarVideo.version_id == version_id)
+            .order_by(AvatarVideo.created_at.desc())
+            .limit(1)
+        )
+
+    async def start_avatar_video(
+        self,
+        *,
+        video_id: str,
+        version_id: str,
+    ) -> AvatarVideo:
+        video = await self.get_avatar_video(version_id)
+        if video is None:
+            video = AvatarVideo(
+                video_id=video_id,
+                version_id=version_id,
+                status="processing",
+            )
+            self.db.add(video)
+        else:
+            video.status = "processing"
+            video.error_code = None
+        await self.db.commit()
+        return video
+
+    async def complete_avatar_video(
+        self,
+        video_id: str,
+        *,
+        object_key: str | None,
+        storage_url: str,
+        video_hash: str,
+        video_size: int,
+        video_mime_type: str,
+        duration: int,
+    ) -> AvatarVideo:
+        video = await self.db.get(AvatarVideo, video_id)
+        if video is None:
+            raise LookupError("avatar video not found")
+        video.status = "completed"
+        video.object_key = object_key
+        video.storage_url = storage_url
+        video.video_hash = video_hash
+        video.video_size = video_size
+        video.video_mime_type = video_mime_type
+        video.duration = duration
+        video.error_code = None
+        await self.db.commit()
+        return video
+
+    async def fail_avatar_video(self, video_id: str, error_code: str) -> None:
+        video = await self.db.get(AvatarVideo, video_id)
+        if video is not None:
+            video.status = "failed"
+            video.error_code = error_code
+            await self.db.commit()
+
+    async def update_avatar_video_duration(
+        self,
+        video_id: str,
+        *,
+        duration: int,
+    ) -> AvatarVideo:
+        video = await self.db.get(AvatarVideo, video_id)
+        if video is None:
+            raise LookupError("avatar video not found")
+        video.duration = duration
+        await self.db.commit()
+        return video
 
     async def finalize_session_versions(
         self, *, session_id: str, approved_version_id: str

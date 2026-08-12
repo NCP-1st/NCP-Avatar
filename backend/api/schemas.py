@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -139,6 +140,7 @@ class GenerationJobStatus(BaseModel):
     status: str
     result: dict | None = None
     error_code: str | None = None
+    error_message: str | None = None
 
 
 class DiaryVersionResponse(BaseModel):
@@ -156,6 +158,19 @@ class DiaryVersionResponse(BaseModel):
 class DiaryApprovalResponse(DiaryVersionResponse):
     media_job_id: str
     media_status: str
+
+
+class DiaryApprovalRequest(BaseModel):
+    character_id: Literal["char_1", "char_2", "char_3"] = "char_1"
+    voice_id: Literal[
+        "nara",
+        "vara",
+        "vmikyung",
+        "vdain",
+        "vyuna",
+        "vdonghyun",
+        "vdaeseong",
+    ] = "vdonghyun"
 
 
 class DiaryVersionListResponse(BaseModel):

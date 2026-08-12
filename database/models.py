@@ -268,11 +268,19 @@ class DiaryAudio(Base):
 
 class AvatarVideo(Base):
     __tablename__ = "avatar_videos"
+    __table_args__ = (
+        UniqueConstraint("version_id", name="uq_avatar_videos_version"),
+    )
 
     video_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     version_id: Mapped[str] = mapped_column(String(50), ForeignKey("diary_versions.version_id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, processing, completed, failed
     storage_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    object_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    video_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    video_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    video_mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     duration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # video length in seconds
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

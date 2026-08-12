@@ -10,13 +10,13 @@ from backend.services.voice.base import VoiceAdapter
 
 
 EMOTION_SUPPORTED_SPEAKERS = (
-    "nara",
-    "vara",
-    "vmikyung",
-    "vdain",
-    "vyuna",
-    "vgoeun",
-    "vdaeseong",
+    "nara",  # 아라 (기본) 여성
+    "vara",  # 아라 (pro) 여성
+    "vmikyung",  # 미경 (pro) 여성
+    "vdain",  # 다인 여성
+    "vyuna",  # 유나 여성
+    "vdonghyun",  # 동현 남성
+    "vdaeseong",  # 대성 남성
 )
 
 EMOTION_VALUES = {

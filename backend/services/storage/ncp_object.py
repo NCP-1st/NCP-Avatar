@@ -87,3 +87,40 @@ class NcpObjectStorageAdapter(StorageAdapter):
             size_bytes=len(data),
             mime_type=mime_type,
         )
+
+    async def download(self, *, object_name: str) -> bytes:
+        if not object_name:
+            raise ValueError("object name is required")
+
+        def get_object() -> bytes:
+            response = self._get_client().get_object(
+                Bucket=self._bucket,
+                Key=object_name,
+            )
+            body = response["Body"]
+            try:
+                data = body.read()
+            finally:
+                body.close()
+            if not data:
+                raise RuntimeError("NCP Object Storage returned an empty object")
+            return data
+
+        return await asyncio.to_thread(get_object)
+
+    async def delete(self, *, object_name: str) -> None:
+        if not object_name:
+            raise ValueError("object name is required")
+
+        def delete_object() -> None:
+            response = self._get_client().delete_object(
+                Bucket=self._bucket,
+                Key=object_name,
+            )
+            status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if status_code not in {200, 204}:
+                raise RuntimeError(
+                    f"NCP Object Storage delete returned HTTP {status_code}"
+                )
+
+        await asyncio.to_thread(delete_object)

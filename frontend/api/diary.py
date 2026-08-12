@@ -87,9 +87,17 @@ def list_versions(session_id: str) -> dict:
     return _request("GET", f"/diary/{session_id}/versions")
 
 
-def approve_version(session_id: str, version_id: str) -> dict:
+def approve_version(
+    session_id: str,
+    version_id: str,
+    *,
+    character_id: str,
+    voice_id: str,
+) -> dict:
     return _request(
-        "POST", f"/diary/{session_id}/versions/{version_id}/approve"
+        "POST",
+        f"/diary/{session_id}/versions/{version_id}/approve",
+        json={"character_id": character_id, "voice_id": voice_id},
     )
 
 
@@ -99,3 +107,20 @@ def delete_version(session_id: str, version_id: str) -> dict:
 
 def get_job(job_id: str) -> dict:
     return _request("GET", f"/diary/jobs/{job_id}")
+
+
+def download_video(session_id: str, version_id: str) -> bytes:
+    try:
+        response = httpx.get(
+            BASE_URL + f"/diary/{session_id}/versions/{version_id}/video",
+            timeout=60.0,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError("아바타 영상을 불러오지 못했습니다.") from exc
+    if response.is_error:
+        try:
+            detail = response.json().get("detail", response.text)
+        except ValueError:
+            detail = response.text
+        raise RuntimeError(f"아바타 영상을 불러오지 못했습니다: {detail}")
+    return response.content

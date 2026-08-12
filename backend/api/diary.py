@@ -1,7 +1,8 @@
 import asyncio
+from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.diary_chatbot.models import WorkflowStage
@@ -11,6 +12,7 @@ from backend.api.schemas import (
     ConfirmTranscriptResponse,
     CreateSessionRequest,
     DiaryApprovalResponse,
+    DiaryApprovalRequest,
     DiaryChatRequest,
     DiaryChatResponse,
     DiaryReviewRequest,
@@ -31,16 +33,23 @@ from backend.dependencies import (
     generation_jobs,
     generation_tasks,
     get_diary_media_orchestrator,
+    get_diary_deletion_orchestrator,
     get_diary_orchestrator,
+    get_media_storage_adapter,
     get_pipeline,
     media_jobs,
     media_tasks,
 )
 from backend.orchestration.diary_media import DiaryMediaOrchestrator
+from backend.orchestration.diary_deletion import (
+    DiaryDeletionOrchestrator,
+    DiaryMediaProcessingError,
+)
 from backend.orchestration.diary_orchestrator import (
     MAX_DIARY_VERSIONS,
     DiaryOrchestrator,
 )
+from backend.services.storage import StorageAdapter
 from backend.orchestration.diary_pipeline import DiaryPipeline
 from backend.repositories.sqlalchemy import SQLAlchemyDiaryRepository
 from database.conn.db import AsyncSessionLocal, get_db
@@ -127,6 +136,8 @@ async def _run_media_job(
     job_id: str,
     *,
     version_id: str,
+    character_id: str,
+    voice_id: str,
     orchestrator: DiaryMediaOrchestrator,
 ) -> None:
     media_jobs[job_id]["status"] = "processing"
@@ -134,7 +145,13 @@ async def _run_media_job(
         async with AsyncSessionLocal() as db:
             result = await orchestrator.run(
                 version_id=version_id,
-                voice_id="nara",
+                voice_id=voice_id,
+                character_id=character_id,
+                character_image_path=(
+                    Path(__file__).resolve().parents[1]
+                    / "character"
+                    / f"{character_id}.png"
+                ),
                 target_duration_seconds=30,
                 tone="따뜻한 회상",
                 repository=SQLAlchemyDiaryRepository(db),
@@ -147,6 +164,7 @@ async def _run_media_job(
         media_jobs[job_id].update(
             status="failed",
             error_code=type(exc).__name__,
+            error_message=str(exc)[:500],
         )
 
 
@@ -408,23 +426,86 @@ async def delete_diary_version(
     session_id: str,
     version_id: str,
     pipeline: DiaryPipeline = Depends(get_pipeline),
+    deletion_orchestrator: DiaryDeletionOrchestrator = Depends(
+        get_diary_deletion_orchestrator
+    ),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
+) -> dict[str, str | int]:
     await require_session(session_id, pipeline, db)
+    if any(
+        job.get("version_id") == version_id
+        and job.get("status") in {"queued", "processing"}
+        for job in media_jobs.values()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="media generation is still processing",
+        )
     try:
-        await SQLAlchemyDiaryRepository(db).delete_version(
+        deletion = await deletion_orchestrator.delete_version(
             session_id=session_id,
             version_id=version_id,
+            repository=SQLAlchemyDiaryRepository(db),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DiaryMediaProcessingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "failed to delete diary media from storage",
+                "error_code": type(exc).__name__,
+            },
+        ) from exc
 
     state = diary_states.get(session_id)
     if state is not None:
         state.versions = [
             item for item in state.versions if item.version_id != version_id
         ]
-    return {"deleted_version_id": version_id}
+    return {
+        "deleted_version_id": version_id,
+        "deleted_object_count": deletion.deleted_object_count,
+    }
+
+
+@router.get("/{session_id}/versions/{version_id}/video")
+async def stream_avatar_video(
+    session_id: str,
+    version_id: str,
+    pipeline: DiaryPipeline = Depends(get_pipeline),
+    storage: StorageAdapter = Depends(get_media_storage_adapter),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve a stored avatar video without requiring a public storage bucket."""
+    await require_session(session_id, pipeline, db)
+    repository = SQLAlchemyDiaryRepository(db)
+    version = await repository.get_version(version_id)
+    if version is None or version.session_id != session_id:
+        raise HTTPException(status_code=404, detail="diary version not found")
+
+    video = await repository.get_avatar_video(version_id)
+    if video is None or video.status != "completed" or not video.object_key:
+        raise HTTPException(status_code=404, detail="completed avatar video not found")
+
+    try:
+        video_bytes = await storage.download(object_name=video.object_key)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "failed to download avatar video from storage",
+                "error_code": type(exc).__name__,
+            },
+        ) from exc
+
+    return Response(
+        content=video_bytes,
+        media_type=video.video_mime_type or "video/mp4",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.post(
@@ -435,6 +516,7 @@ async def delete_diary_version(
 async def approve_diary_version(
     session_id: str,
     version_id: str,
+    request: DiaryApprovalRequest,
     pipeline: DiaryPipeline = Depends(get_pipeline),
     orchestrator: DiaryOrchestrator = Depends(get_diary_orchestrator),
     media_orchestrator: DiaryMediaOrchestrator = Depends(
@@ -469,11 +551,15 @@ async def approve_diary_version(
         "status": "queued",
         "result": None,
         "error_code": None,
+        "error_message": None,
+        "version_id": version_id,
     }
     task = asyncio.create_task(
         _run_media_job(
             job_id,
             version_id=version_id,
+            character_id=request.character_id,
+            voice_id=request.voice_id,
             orchestrator=media_orchestrator,
         )
     )
