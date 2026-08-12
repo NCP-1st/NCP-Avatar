@@ -205,6 +205,9 @@ class CounselRequest(BaseModel):
     memory_scope: MemoryScope = Field(default_factory=MemoryScope)
 
 
+ClosingKind = Literal["emotion_card", "action_task"]
+
+
 class CounselDraft(BaseModel):
     reply: str = Field(
         description="이번에 할 말. 공감하거나 짧게 반응한다. 2~3문장을 넘기지 않는다"
@@ -226,6 +229,14 @@ class CounselDraft(BaseModel):
             "suggestion이 무엇인지. 몸으로 하는 것이면 'action', "
             "들을 음악이면 'music'. suggestion이 null이면 null"
         )
+    )
+    closing_kind: ClosingKind | None = Field(
+        default=None,
+        description=(
+            "마무리 단계에서 어떻게 끝낼지 고른 것. 마무리가 아니면 null. "
+            "'emotion_card'면 summary만 채우고 suggestion은 null, "
+            "'action_task'면 suggestion만 채우고 summary는 null"
+        ),
     )
 
 

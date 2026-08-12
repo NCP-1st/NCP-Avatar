@@ -645,19 +645,55 @@ _STAGE_ALLOWED: dict[CounselStage, frozenset[str]] = {
     CounselStage.OPENING: frozenset({"question"}),
     CounselStage.EXPLORING: frozenset({"question"}),
     CounselStage.CARING: frozenset({"question", "summary", "suggestion"}),
+    # 마무리는 summary·suggestion 중 하나만 살아남는다 (`_enforce_closing`).
     CounselStage.CLOSING: frozenset({"summary", "suggestion"}),
 }
 
 # 그 단계라면 반드시 있어야 하는 필드.
 # EXPLORING에 question이 없는 건 의도적이다 — 물을 게 없으면 묻지 않는다.
+# CLOSING은 여기서 강제하지 않는다. 무엇이 필요한지가 closing_kind에 따라
+# 갈리므로 `_closing_gaps`가 따로 본다.
 _STAGE_REQUIRED: dict[CounselStage, frozenset[str]] = {
     CounselStage.OPENING: frozenset({"question"}),
     CounselStage.EXPLORING: frozenset(),
     CounselStage.CARING: frozenset({"summary", "suggestion"}),
-    CounselStage.CLOSING: frozenset({"suggestion"}),
+    CounselStage.CLOSING: frozenset(),
 }
 
 _OPTIONAL_FIELDS = ("question", "summary", "suggestion")
+
+
+def _enforce_closing(draft: CounselDraft) -> dict[str, object]:
+    """마무리는 둘 중 하나만 남긴다.
+
+    모델은 프롬프트에 "고른 쪽만 채우라"고 해도 둘 다 채운다. 그대로 두면
+    정리를 받고 가려던 사람에게 요약과 숙제가 함께 나간다.
+
+    `closing_kind`가 있으면 그걸 따르고, 없으면 채워진 쪽에서 읽어낸다.
+    둘 다 비었거나 둘 다 찼는데 고르지도 않은 경우는 여기서 정하지 않는다 —
+    `_closing_gaps`가 재생성을 시킨다. 코드가 임의로 하나를 골라 버리면
+    모델이 무엇을 의도했는지와 무관한 마무리가 나간다.
+    """
+    kind = draft.closing_kind
+    if kind is None:
+        has_card, has_task = bool(draft.summary), bool(draft.suggestion)
+        if has_card == has_task:  # 둘 다거나 둘 다 아님 → 재생성으로 넘긴다
+            return {}
+        kind = "emotion_card" if has_card else "action_task"
+
+    if kind == "emotion_card":
+        return {
+            "closing_kind": "emotion_card",
+            "suggestion": None,
+            "suggestion_kind": None,
+        }
+    return {
+        "closing_kind": "action_task",
+        "summary": None,
+        # 마무리에서는 음악을 권하지 않는다. 잘 자라는 인사 대신 재생목록을
+        # 내미는 마무리가 된다.
+        "suggestion_kind": "action",
+    }
 
 
 def _enforce_stage(
@@ -683,6 +719,18 @@ def _enforce_stage(
     elif draft.suggestion_kind is None:
         dropped["suggestion_kind"] = "action"  # 종류를 안 밝히면 행동으로 본다
 
+    if stage is CounselStage.CLOSING:
+        dropped.update(_enforce_closing(draft.model_copy(update=dropped)))
+    elif draft.closing_kind is not None:
+        # 마무리가 아닌 턴에 마무리 표시가 붙으면 화면이 카드를 그린다.
+        dropped["closing_kind"] = None
+
+    dropped = {
+        field: value
+        for field, value in dropped.items()
+        if getattr(draft, field) != value
+    }
+
     if dropped:
         logger.info(
             "counsel adjusted off-stage fields trace=%s stage=%s fields=%s",
@@ -704,6 +752,9 @@ def _stage_gaps(
     질문은 단계로 강제하지 않는다. 대신 챗봇 에이전트가 "아직 모르는 것"을
     짚었는데도 묻지 않았을 때만 다시 시킨다.
     """
+    if stage is CounselStage.CLOSING:
+        return _closing_gaps(draft)
+
     required = set(_STAGE_REQUIRED[stage])
     if (
         stage is CounselStage.EXPLORING
@@ -713,6 +764,21 @@ def _stage_gaps(
         required.add("question")
 
     return [f"missing_{field}" for field in sorted(required) if not getattr(draft, field)]
+
+
+def _closing_gaps(draft: CounselDraft) -> list[str]:
+    """마무리가 둘 중 하나로 제대로 끝났는지 본다.
+
+    `_enforce_closing`이 이미 한쪽을 지운 뒤라, 여기 남은 문제는 "고르지
+    못했다" 아니면 "고른 쪽이 비었다" 둘뿐이다.
+    """
+    if draft.closing_kind is None:
+        return ["missing_closing_kind"]
+    if draft.closing_kind == "emotion_card" and not draft.summary:
+        return ["missing_closing_card"]
+    if draft.closing_kind == "action_task" and not draft.suggestion:
+        return ["missing_closing_task"]
+    return []
 
 
 def _last_assistant_reply(history: list[CounselTurn]) -> str | None:

@@ -194,6 +194,49 @@ def render_evidences(reply: dict) -> None:
     st.caption(f"📖 {', '.join(labels)}자 일기를 참고했어요")
 
 
+def render_closing(reply: dict) -> bool:
+    """마무리 턴을 카드나 과제로 그린다. 그렸으면 True.
+
+    마무리는 둘 중 하나다. 서버가 이미 한쪽만 남겨서 보낸다.
+    - emotion_card: 오늘을 한 줄로 되돌려주고, 분석된 감정을 함께 얹는다.
+    - action_task : 지금 할 수 있는 작은 것 하나.
+
+    지난 상담을 다시 열었을 때는 `sections`가 없다. 그때는 저장된 본문
+    텍스트를 그대로 쓰므로 여기서 False를 돌려준다 — 카드를 다시 그리려고
+    없는 값을 지어내지 않는다.
+    """
+    sections = reply.get("sections") or {}
+    kind = sections.get("closing_kind")
+    if not kind:
+        return False
+
+    # 고른 쪽이 비어 있을 수 있다. 재생성을 두 번 해도 모델이 못 채우면 서버는
+    # 답변 본문만 살려 내보낸다(실측 7건 중 1건). 그때 빈 카드를 그리면
+    # 사용자에게는 고장으로 보이므로, 본문만 있는 마무리로 되돌린다.
+    body = sections.get("summary") if kind == "emotion_card" else sections.get("suggestion")
+    if not body:
+        return False
+
+    st.markdown(sections.get("reply") or reply["message"])
+
+    if kind == "emotion_card":
+        emotion = (reply.get("state") or {}).get("emotion") or {}
+        with st.container(border=True):
+            st.caption("오늘의 마음")
+            st.markdown(f"**{body}**")
+            if emotion:
+                labels = " · ".join([emotion["primary"], *emotion.get("secondary", [])])
+                filled = "●" * emotion["intensity"]
+                empty = "○" * (5 - emotion["intensity"])
+                st.markdown(f"{labels}　{filled}{empty}")
+        return True
+
+    with st.container(border=True):
+        st.caption("오늘 해볼 것 하나")
+        st.markdown(body)
+    return True
+
+
 def render_reply(reply: dict) -> None:
     """응답 본문 + 접어둔 분석 + 안전 안내."""
     if reply.get("safety_level") == "crisis":
@@ -201,7 +244,8 @@ def render_reply(reply: dict) -> None:
         st.warning(reply["safety_notice"])
         return
 
-    st.markdown(reply["message"])
+    if not render_closing(reply):
+        st.markdown(reply["message"])
 
     # 음악 제안임을 여기서 표시한다. 응답 본문에는 이모지를 넣지 않는다.
     sections = reply.get("sections") or {}
