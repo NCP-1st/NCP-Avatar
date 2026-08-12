@@ -45,10 +45,11 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
             "client_secret": env.get("CLOVA_VOICE_CLIENT_SECRET", ""),
         },
         "avatar": {
-            "space_id": env.get("HF_AVATAR_SPACE_ID") or "pragnakalp/Wav2lip-ZeroGPU",
-            "api_name": env.get("HF_AVATAR_API_NAME") or "/run_infrence",
+            "profile": env.get("HF_AVATAR_PROFILE") or "sadtalker",
+            "space_id": env.get("HF_AVATAR_SPACE_ID") or "nomad0884/SadTalker",
+            "api_name": env.get("HF_AVATAR_API_NAME") or "/predict",
             "token": env.get("HF_TOKEN") or env.get("ACCESS_TOCKEN", ""),
-            "timeout_s": float(env.get("HF_AVATAR_TIMEOUT_SECONDS") or "180"),
+            "timeout_s": float(env.get("HF_AVATAR_TIMEOUT_SECONDS") or "600"),
             "image_path": str(avatar_image_path.resolve()),
         },
         "object_storage": {

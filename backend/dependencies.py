@@ -57,6 +57,24 @@ diary_orchestrator = DiaryOrchestrator(
 
 media_config = load_config()
 avatar_config = media_config["avatar"]
+avatar_extra_inputs: tuple[Any, ...] = ()
+if avatar_config["profile"] == "sadtalker":
+    avatar_extra_inputs = (
+        "crop",       # preprocess
+        True,         # still mode
+        False,        # face enhancer
+        1,            # batch size
+        256,          # face model resolution
+        0,            # pose style
+        "facevid2vid",
+        1.0,          # expression scale
+        False,        # use reference video
+        None,         # reference video
+        "pose",       # reference information
+        False,        # idle mode
+        5,            # idle video length (unused with audio)
+        True,         # eye blink
+    )
 media_storage_adapter = NcpObjectStorageAdapter(media_config["object_storage"])
 diary_media_orchestrator = DiaryMediaOrchestrator(
     script_agent=Hcx007ScriptGenerationAgent(media_config),
@@ -69,6 +87,7 @@ diary_media_orchestrator = DiaryMediaOrchestrator(
         token=avatar_config["token"],
         timeout_s=avatar_config["timeout_s"],
         audio_suffix=".mp3",
+        extra_inputs=avatar_extra_inputs,
     ),
     config=media_config,
 )

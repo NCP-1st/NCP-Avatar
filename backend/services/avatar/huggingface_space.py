@@ -60,6 +60,7 @@ class HuggingFaceSpaceAvatarAdapter(AvatarAdapter):
         token: str | None = None,
         timeout_s: float = 180,
         audio_suffix: str = ".wav",
+        extra_inputs: tuple[Any, ...] = (),
         client_factory: ClientFactory = _default_client_factory,
     ) -> None:
         self._source_image = Path(source_image)
@@ -68,6 +69,7 @@ class HuggingFaceSpaceAvatarAdapter(AvatarAdapter):
         self._token = token or None
         self._timeout_s = timeout_s
         self._audio_suffix = audio_suffix if audio_suffix.startswith(".") else f".{audio_suffix}"
+        self._extra_inputs = extra_inputs
         self._client_factory = client_factory
 
     async def render(
@@ -109,6 +111,7 @@ class HuggingFaceSpaceAvatarAdapter(AvatarAdapter):
             result = client.predict(
                 handle_file(str(source_image)),
                 handle_file(str(audio_path)),
+                *self._extra_inputs,
                 api_name=self._api_name,
             )
             output_path = _video_path(result)

@@ -152,7 +152,7 @@ async def _run_media_job(
                     / "character"
                     / f"{character_id}.png"
                 ),
-                target_duration_seconds=30,
+                target_duration_seconds=10,
                 tone="따뜻한 회상",
                 repository=SQLAlchemyDiaryRepository(db),
             )
