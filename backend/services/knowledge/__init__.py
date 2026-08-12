@@ -8,12 +8,14 @@ from backend.services.knowledge.base import (
     PersonalOntologyPort,
 )
 from backend.services.knowledge.diary_sql import SqlDiaryMemory
+from backend.services.knowledge.diary_vector import VectorDiaryMemory
 from backend.services.knowledge.memory import (
     InMemoryCounselKnowledge,
     InMemoryDiaryMemory,
     InMemoryPersonalOntology,
 )
 from backend.services.knowledge.relevance import DiaryThresholds
+from backend.services.knowledge.vector_thresholds import VectorThresholds
 
 __all__ = [
     "CounselKnowledgePort",
@@ -28,4 +30,6 @@ __all__ = [
     "OntologyFact",
     "PersonalOntologyPort",
     "SqlDiaryMemory",
+    "VectorDiaryMemory",
+    "VectorThresholds",
 ]

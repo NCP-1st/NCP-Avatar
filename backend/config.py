@@ -72,6 +72,18 @@ def load_config(env_path: str | os.PathLike[str] | None = None) -> dict[str, Any
                 env.get("DIARY_MIN_HEADLINE_TOKENS", "1")
             ),
             "diary_strong_score": float(env.get("DIARY_STRONG_SCORE", "0.7")),
+            # 벡터 검색용 임계값. 코사인 유사도는 어휘 겹침 비율과 분포가 달라
+            # 같은 숫자를 쓸 수 없다. bge-m3 는 같은 언어면 무관한 글끼리도
+            # 0.4~0.5가 흔히 나온다. 실측(승인본 31건)으로 잡은 값이다:
+            #   관련 있는 질의의 1위  0.584 ~ 0.699
+            #   무관한 질의의 1위     0.432 ~ 0.572  ("병원 검진"이 0.572)
+            # 경계가 0.01밖에 안 떨어져 있어 넉넉하지 않다. 트래픽이 쌓이면
+            # CounselTrace.diary_top_candidate 분포를 보고 다시 잡아야 한다.
+            "diary_vec_min_score": float(env.get("DIARY_VEC_MIN_SCORE", "0.58")),
+            "diary_vec_strong_score": float(env.get("DIARY_VEC_STRONG_SCORE", "0.58")),
+            # "sql"(어휘 겹침) 또는 "vector"(임베딩). 벡터 쪽에 문제가 생기면
+            # env 하나로 되돌린다 — 배포 없이 원래 경로로 돌아갈 수 있어야 한다.
+            "diary_backend": env.get("COUNSEL_DIARY_BACKEND", "sql"),
         },
         "db": {
             "host": env.get("DB_HOST", "localhost"),

@@ -24,6 +24,8 @@ from backend.services.knowledge import (
     InMemoryCounselKnowledge,
     InMemoryPersonalOntology,
     SqlDiaryMemory,
+    VectorDiaryMemory,
+    VectorThresholds,
 )
 from backend.services.avatar import HuggingFaceSpaceAvatarAdapter
 from backend.services.speech.clova import ClovaSpeechToTextAdapter
@@ -152,13 +154,30 @@ async def get_counsel_store(
 
 async def get_counsel_diary(
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> SqlDiaryMemory:
+) -> DiaryMemoryPort:
     """상담이 참고할 과거 일기 검색기 (H-02).
 
     상담과 일기가 같은 DB를 보므로 요청 스코프 세션을 그대로 쓴다. 관련도
     임계값은 config에서 온다 — 실측으로 옮기는 값이라 코드에 박지 않는다.
+
+    어휘 겹침과 임베딩 두 갈래가 있고 `COUNSEL_DIARY_BACKEND`로 고른다.
+    반환 타입을 포트로 두는 건 호출부가 어느 쪽인지 몰라도 되게 하려는 것이다.
+    벡터 쪽에 문제가 생기면 env 하나로 되돌아간다 — 배포가 필요 없어야 한다.
     """
-    return SqlDiaryMemory(db, thresholds=DiaryThresholds.from_config(load_config()))
+    config = load_config()
+    if config["counsel"]["diary_backend"] == "vector":
+        # 질의 벡터는 적재와 **같은 어댑터**로 만든다. 모델이 갈리면 두 벡터가
+        # 다른 공간에 있어 유사도가 무의미해진다.
+        return VectorDiaryMemory(
+            db,
+            ClovaEmbeddingAdapter(
+                api_key=config["llm"]["api_key"],
+                base_url=config["llm"]["base_url"],
+                timeout_seconds=config["llm"]["timeout_s"],
+            ),
+            thresholds=VectorThresholds.from_config(config),
+        )
+    return SqlDiaryMemory(db, thresholds=DiaryThresholds.from_config(config))
 
 
 def get_counsel_flow(
