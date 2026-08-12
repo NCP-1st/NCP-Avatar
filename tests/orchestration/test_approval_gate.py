@@ -40,6 +40,14 @@ class StubDiaryGenerator(DiaryGenerationAgent):
         )
 
 
+class RecordingEmbeddingService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def index_diary(self, *, version_id: str, content: str) -> None:
+        self.calls.append((version_id, content))
+
+
 class UnusedAvatarAdapter(AvatarAdapter):
     async def render(self, audio: bytes, *, version_id: str) -> bytes:
         raise AssertionError("Voice 실패 뒤 Avatar가 호출되면 안 됩니다.")
@@ -168,14 +176,14 @@ async def test_approving_one_version_unapproves_the_others() -> None:
     orchestrator.start_new_version_chat(state)
     state.workflow.stage = WorkflowStage.READY_TO_GENERATE
     await orchestrator.request_generation(state)
-    approved = orchestrator.approve(state, second)
+    approved = await orchestrator.approve(state, second)
 
     assert approved.approved is True
     assert [item.version_id for item in state.versions if item.approved] == [
         second.version_id
     ]
 
-    changed = orchestrator.approve(state, first)
+    changed = await orchestrator.approve(state, first)
     assert changed.approved is True
     assert [item.version_id for item in state.versions if item.approved] == [
         first.version_id
@@ -188,8 +196,27 @@ async def test_approved_session_can_start_another_candidate_below_limit() -> Non
     state = orchestrator.start_session("session-approved-regenerate")
     state.workflow.stage = WorkflowStage.READY_TO_GENERATE
     first = await orchestrator.request_generation(state)
-    orchestrator.approve(state, first)
+    await orchestrator.approve(state, first)
 
     orchestrator.start_new_version_chat(state)
 
     assert state.stage is WorkflowStage.COLLECTING
+
+
+@pytest.mark.anyio
+async def test_only_approval_indexes_generated_diary_content() -> None:
+    orchestrator = _orchestrator(generator=StubDiaryGenerator())
+    state = orchestrator.start_session("session-embedding-trigger")
+    state.workflow.stage = WorkflowStage.READY_TO_GENERATE
+    embedding = RecordingEmbeddingService()
+
+    version = await orchestrator.request_generation(state)
+    assert embedding.calls == []
+
+    approved = await orchestrator.approve(
+        state,
+        version,
+        embedding_service=embedding,
+    )
+
+    assert embedding.calls == [(approved.version_id, approved.content)]

@@ -22,6 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 
 # 운영은 PostgreSQL, 테스트는 SQLite 메모리 DB를 쓴다. JSONB와 BIGSERIAL은
@@ -152,6 +153,33 @@ class DiaryVersion(Base):
         cascade="all, delete-orphan",
         single_parent=True,
         uselist=False,
+    )
+    embedding: Mapped[Optional["DiaryEmbedding"]] = relationship(
+        "DiaryEmbedding",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        single_parent=True,
+        uselist=False,
+    )
+
+
+class DiaryEmbedding(Base):
+    """Search vector for one approved diary version."""
+
+    __tablename__ = "diary_embeddings"
+
+    version_id: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("diary_versions.version_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    version: Mapped["DiaryVersion"] = relationship(
+        "DiaryVersion", back_populates="embedding"
     )
 
 

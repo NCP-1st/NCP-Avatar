@@ -31,6 +31,7 @@ from backend.services.storage import NcpObjectStorageAdapter, StorageAdapter
 from backend.services.storage.inline import InlineDataUrlStorageAdapter
 from database.conn.db import get_db
 from backend.services.voice import ClovaVoiceAdapter
+from backend.services.embedding import ClovaEmbeddingAdapter, DiaryEmbeddingService
 
 
 def build_pipeline() -> DiaryPipeline:
@@ -117,6 +118,20 @@ def get_diary_deletion_orchestrator() -> DiaryDeletionOrchestrator:
 
 def get_media_storage_adapter() -> StorageAdapter:
     return media_storage_adapter
+
+
+async def get_diary_embedding_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DiaryEmbeddingService:
+    config = load_config()
+    return DiaryEmbeddingService(
+        db,
+        ClovaEmbeddingAdapter(
+            api_key=config["llm"]["api_key"],
+            base_url=config["llm"]["base_url"],
+            timeout_seconds=config["llm"]["timeout_s"],
+        ),
+    )
 
 
 # --- 상담 -----------------------------------------------------------------
