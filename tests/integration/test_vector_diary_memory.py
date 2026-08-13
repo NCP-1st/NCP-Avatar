@@ -52,14 +52,34 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+# 닿지 못한 이유. 한 번 실패하면 남은 테스트는 다시 시도하지 않는다.
+#
+# 연결 타임아웃은 20초씩 걸린다. 테스트마다 재시도하면 "이 환경에서는 못 돈다"를
+# 확인하는 데만 3분이 넘게 든다. 결과는 어차피 같으므로 처음 한 번만 시도한다.
+_UNREACHABLE: str | None = None
+
+
 @pytest.fixture
 async def db() -> AsyncSession:
+    global _UNREACHABLE
+
     dsn = _dsn()
     if dsn is None:
         pytest.skip("pgvector를 쓸 수 있는 PostgreSQL이 없다")
+    if _UNREACHABLE is not None:
+        pytest.skip(_UNREACHABLE)
 
     engine = create_async_engine(dsn)
-    connection = await engine.connect()
+    try:
+        connection = await engine.connect()
+    except OSError as exc:
+        # DSN이 있어도 그 DB에 닿지 못할 수 있다 — 사내망 밖, ACG 미등록, 인스턴스
+        # 중지. 그때 ERROR로 터지면 "테스트가 깨졌다"와 "여기서는 못 돈다"가
+        # 구별되지 않는다. 없는 것과 같이 취급해 건너뛴다.
+        await engine.dispose()
+        _UNREACHABLE = f"PostgreSQL에 닿지 못했다: {exc}"
+        pytest.skip(_UNREACHABLE)
+
     transaction = await connection.begin()
     try:
         if not await connection.scalar(
@@ -247,8 +267,8 @@ async def test_blank_query_returns_nothing(db: AsyncSession) -> None:
 
 
 @pytest.mark.anyio
-async def test_emotion_is_folded_into_the_query(db: AsyncSession) -> None:
-    """벡터는 성분을 나눌 수 없어 감정을 질의 문장에 붙여 함께 인코딩한다."""
+async def test_emotion_never_reaches_the_query_vector(db: AsyncSession) -> None:
+    """감정은 받아도 질의에 넣지 않는다."""
     await _seed(db, user_id="u-1", session_id="vs-1", version_id="vv-1",
                 embedding=_vector(1, 0))
     embedder = _StubEmbedder(_vector(1, 0))
@@ -257,7 +277,7 @@ async def test_emotion_is_folded_into_the_query(db: AsyncSession) -> None:
         user_id="u-1", query="국밥", period_days=30, max_items=5, emotion="행복"
     )
 
-    assert embedder.calls == ["국밥 행복"]
+    assert embedder.calls == ["국밥"]
 
 
 # --- 6. 임계값 (relevance.lookup 재사용) ---------------------------------------

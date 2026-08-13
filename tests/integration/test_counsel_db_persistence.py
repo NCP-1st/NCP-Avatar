@@ -32,7 +32,7 @@ from backend.agents.counsel_chatbot.schemas import (
 )
 from backend.orchestration.counsel_flow import CounselFlow
 from backend.repositories import SQLAlchemyConversationStore
-from backend.services.knowledge import InMemoryCounselKnowledge, InMemoryPersonalOntology
+from backend.services.knowledge import InMemoryPersonalOntology
 from database.models import Base, CounselSession, CounselTurnTrace
 from database.models import CounselTurn as ORMCounselTurn
 
@@ -56,7 +56,6 @@ def _trace(trace_id: str = "trace-1", **overrides: object) -> CounselTrace:
         "result_code": "ok",
         "stage": "opening",
         "emotion": "불안",
-        "knowledge_count": 2,
         "ontology_count": 1,
         "event_count": 1,
         "guardrail_hits": [],
@@ -271,7 +270,6 @@ def _flow(store: SQLAlchemyConversationStore) -> CounselFlow:
     return CounselFlow(
         context_agent=_StubContextAgent(),  # type: ignore[arg-type]
         counselor_agent=_StubCounselorAgent(),  # type: ignore[arg-type]
-        knowledge=InMemoryCounselKnowledge(),
         ontology=InMemoryPersonalOntology(),
         store=store,
     )
@@ -458,6 +456,7 @@ async def test_chat_endpoint_rejects_another_users_session(db: AsyncSession) -> 
 _COUNSEL_MIGRATIONS = (
     "f1a2c3d4e5f6_counsel_turns_and_traces",
     "b7c8d9e0f1a2_counsel_trace_diary_observability",
+    "e2d1a4c78b30_drop_trace_knowledge_count",
 )
 
 
@@ -481,11 +480,6 @@ def _migration_sql() -> str:
 
 
 def _migrated_columns(sql: str, table: str) -> set[str]:
-    """CREATE TABLE 로 생긴 컬럼에 나중에 ADD COLUMN 된 것까지 더한다.
-
-    CREATE TABLE 만 보면, 컬럼을 뒤에 추가하는 리비전이 붙는 순간 ORM 과
-    어긋났다고 잘못 알린다.
-    """
     start = sql.index(f"CREATE TABLE {table} (")
     body = sql[sql.index("(", start) + 1 : sql.index("\n);", start)]
 
@@ -499,6 +493,9 @@ def _migrated_columns(sql: str, table: str) -> set[str]:
     }
     columns |= set(
         re.findall(rf"ALTER TABLE {table} ADD COLUMN (\w+)", sql)
+    )
+    columns -= set(
+        re.findall(rf"ALTER TABLE {table} DROP COLUMN (\w+)", sql)
     )
     return columns
 

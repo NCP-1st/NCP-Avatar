@@ -105,7 +105,7 @@ class MemoryScope(BaseModel):
 
     enabled: bool = True
     period_days: int = Field(default=30, ge=1, le=365)
-    max_items: int = Field(default=5, ge=1, le=10)  # 모델 입력 최소화
+    max_items: int = Field(default=2, ge=1, le=10)  # 모델 입력 최소화
 
 
 class EmotionReading(BaseModel):
@@ -247,7 +247,6 @@ class CounselTrace(BaseModel):
     latency_ms: int
     result_code: ResultCode
     stage: str | None = None  # 이번 턴의 대화 단계
-    knowledge_count: int = 0  # 상담 지식 조각 수
     ontology_count: int = 0  # 개인 온톨로지 관계 수
     # 프롬프트에 실제로 들어간 일기 수와 그중 최상위 관련도.
     diary_count: int = 0

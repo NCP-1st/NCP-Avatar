@@ -482,9 +482,6 @@ class CounselTurnTrace(Base):
     emotion: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # 대표 감정 라벨만
 
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
-    knowledge_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0"), default=0
-    )
     ontology_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
     )

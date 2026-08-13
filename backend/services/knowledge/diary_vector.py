@@ -109,10 +109,7 @@ class VectorDiaryMemory:
 
         since = date.today() - timedelta(days=max(period_days, 0))
 
-        # 감정은 질의 문장에 붙여 같이 인코딩한다. 어휘 검색처럼 가산점을 따로
-        # 매길 수 없다 — 벡터는 통째로 한 점이라 성분을 나눌 수 없다.
-        q_text = f"{query} {emotion}".strip() if emotion else query
-        qvec = await self._embedder.embed(q_text)
+        qvec = await self._embedder.embed(query)
 
         # 세션당 1건으로 줄이기 전에 넉넉히 가져온다. 한 일기에 승인본이 여럿이면
         # 상위가 같은 세션으로 채워져 max_items 를 못 채운다.

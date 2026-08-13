@@ -21,7 +21,6 @@ from backend.repositories import (
 from backend.services.knowledge import (
     DiaryMemoryPort,
     DiaryThresholds,
-    InMemoryCounselKnowledge,
     InMemoryPersonalOntology,
     SqlDiaryMemory,
     VectorDiaryMemory,
@@ -137,7 +136,6 @@ async def get_diary_embedding_service(
 
 
 # --- 상담 -----------------------------------------------------------------
-counsel_knowledge = InMemoryCounselKnowledge()
 counsel_ontology = InMemoryPersonalOntology()
 
 
@@ -188,7 +186,6 @@ def get_counsel_flow(
     return CounselFlow(
         context_agent=ContextAgent(config),
         counselor_agent=CounselorAgent(config),
-        knowledge=counsel_knowledge,
         ontology=counsel_ontology,
         store=store,
         diary=diary,

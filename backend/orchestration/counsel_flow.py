@@ -12,11 +12,9 @@ from backend.agents.counsel_chatbot.context_agent import ContextAgent
 from backend.agents.counsel_chatbot.counselor_agent import CounselorAgent
 from backend.repositories import ConversationStore
 from backend.services.knowledge import (
-    CounselKnowledgePort,
     DiaryLookup,
     DiaryMemoryPort,
     DiaryReference,
-    KnowledgeSnippet,
     OntologyFact,
     PersonalOntologyPort,
 )
@@ -37,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 _MAX_GUARDRAIL_RETRIES = 1
 _HISTORY_LIMIT = 20  # 저장소에서 읽어올 최근 대화 수
-_KNOWLEDGE_TOP_K = 3
 _ONTOLOGY_MAX = 5
 
 
@@ -49,14 +46,12 @@ class CounselFlow:
         *,
         context_agent: ContextAgent,
         counselor_agent: CounselorAgent,
-        knowledge: CounselKnowledgePort,
         ontology: PersonalOntologyPort,
         store: ConversationStore,
         diary: DiaryMemoryPort | None = None,
     ) -> None:
         self._context = context_agent
         self._counselor = counselor_agent
-        self._knowledge = knowledge
         self._ontology = ontology
         self._store = store
         # 일기 검색이 없으면 과거를 말할 근거가 없다는 뜻이다. 그 경우
@@ -144,7 +139,7 @@ class CounselFlow:
         # 4. 검색 세 갈래를 동시에. 단계가 정해진 뒤라야 한다 — 일기 검색이
         #    단계(opening 제외)를 보고 걸러진다.
         stage_started = time.perf_counter()
-        snippets, facts, diary = await self._gather_context(
+        facts, diary = await self._gather_context(
             request, state, stage=stage, session_crisis=session_crisis
         )
         # 아래는 "프롬프트에 들어갈 일기"만 본다. 걸러지기 전 최고점은 트레이스
@@ -165,7 +160,6 @@ class CounselFlow:
                     message=request.message,
                     stage=stage,
                     state=state,
-                    snippets=snippets,
                     facts=facts,
                     history=history,
                     diary_refs=diary_refs,
@@ -185,13 +179,12 @@ class CounselFlow:
                     stage=stage,
                     safety_level=screening.level,
                     notice=_notice_for(screening.level),
-                        trace=self._trace(
+                    trace=self._trace(
                         trace_id=trace_id,
                         started=started,
                         result_code="llm_failed",
                         state=state,
                         stage=stage,
-                        snippets=snippets,
                         facts=facts,
                         diary=diary,
                         guardrail_hits=guardrail_hits,
@@ -261,7 +254,6 @@ class CounselFlow:
                     state=state,
                     stage=stage,
                     screening=screening,
-                    snippets=snippets,
                     facts=facts,
                     diary=diary,
                     guardrail_hits=guardrail_hits,
@@ -297,7 +289,6 @@ class CounselFlow:
                     result_code="guardrail_blocked",
                     state=state,
                     stage=stage,
-                    snippets=snippets,
                     facts=facts,
                     diary=diary,
                     guardrail_hits=guardrail_hits,
@@ -315,7 +306,6 @@ class CounselFlow:
             state=state,
             stage=stage,
             screening=screening,
-            snippets=snippets,
             facts=facts,
             diary=diary,
             guardrail_hits=guardrail_hits,
@@ -334,7 +324,6 @@ class CounselFlow:
         state: ConversationState | None,
         stage: CounselStage,
         screening: safety.SafetyScreening,
-        snippets: list[KnowledgeSnippet],
         facts: list[OntologyFact],
         diary: DiaryLookup,
         guardrail_hits: list[str],
@@ -360,7 +349,6 @@ class CounselFlow:
                 result_code=result_code,
                 state=state,
                 stage=stage,
-                snippets=snippets,
                 facts=facts,
                 diary=diary,
                 guardrail_hits=guardrail_hits,
@@ -375,18 +363,8 @@ class CounselFlow:
         *,
         stage: CounselStage,
         session_crisis: bool,
-    ) -> tuple[list[KnowledgeSnippet], list[OntologyFact], DiaryLookup]:
-        """상담 지식·관계 정보·과거 일기를 동시에 모은다.
-
-        한 갈래가 실패해도 나머지로 답변한다. 검색 실패가 상담 실패가 되면
-        안 된다.
-
-        일기만 `DiaryLookup`으로 온다. 프롬프트에 들어갈 목록 외에 걸러지기 전
-        최고점을 트레이스가 써야 해서다 — 임계값을 실측으로 옮기려면 참조에
-        실패한 턴이 몇 점이었는지가 필요하다.
-        """
-        knowledge_result, ontology_result, diary_result = await asyncio.gather(
-            self._search_knowledge(request, state),
+    ) -> tuple[list[OntologyFact], DiaryLookup]:
+        ontology_result, diary_result = await asyncio.gather(
             self._search_ontology(request, state),
             self._search_diary(
                 request, state, stage=stage, session_crisis=session_crisis
@@ -394,33 +372,17 @@ class CounselFlow:
             return_exceptions=True,
         )
 
-        snippets: list[KnowledgeSnippet] = []
         facts: list[OntologyFact] = []
-        for name, result, sink in zip(
-            ("knowledge", "ontology"), (knowledge_result, ontology_result), (snippets, facts)
-        ):
-            if isinstance(result, BaseException):
-                logger.warning("counsel %s search failed: %r", name, result)
-                continue
-            sink.extend(result)
+        if isinstance(ontology_result, BaseException):
+            logger.warning("counsel ontology search failed: %r", ontology_result)
+        else:
+            facts.extend(ontology_result)
 
         if isinstance(diary_result, BaseException):
             logger.warning("counsel diary search failed: %r", diary_result)
             diary_result = DiaryLookup()
 
-        return snippets, facts, diary_result
-
-    async def _search_knowledge(
-        self,
-        request: CounselRequest,
-        state: ConversationState | None,
-    ) -> list[KnowledgeSnippet]:
-        query = " ".join(state.topics) if state and state.topics else request.message
-        return await self._knowledge.search(
-            query=query,
-            emotion=state.emotion.primary if state else None,
-            top_k=_KNOWLEDGE_TOP_K,
-        )
+        return facts, diary_result
 
     async def _search_ontology(
         self,
@@ -445,22 +407,6 @@ class CounselFlow:
         stage: CounselStage,
         session_crisis: bool,
     ) -> DiaryLookup:
-        """지금 대화와 관련 있는 과거 일기를 찾는다 (H-02).
-
-        게이트가 넷이다. 매 턴 일기를 들이대지 않기 위한 것이다.
-
-        - 구조화 실패(`state is None`): 무엇에 대한 이야기인지 모르는 상태다.
-          사용자 원문으로 검색하면 군말까지 섞여 엉뚱한 일기가 걸린다.
-        - 기억 제어 꺼짐(C-03): `_search_ontology`와 같은 기준이다.
-        - 위기 세션: 제안 경로를 막는 것과 같은 이유다. 지금 당장 위험한
-          사람에게 과거 기록을 들이밀면, 좋았던 기억이든 힘들었던 기억이든
-          지금 필요한 안전 안내에서 주의를 돌린다.
-        - opening 단계: 첫 마디에 과거부터 꺼내면 듣기 전에 아는 척하는 게
-          된다. 무슨 이야기인지 들어본 뒤에 찾는다.
-
-        관련도 판정은 검색 구현이 한다. 여기서 돌려받은 것은 그대로 프롬프트에
-        들어간다.
-        """
         if self._diary is None:
             return DiaryLookup()
         if (
@@ -476,6 +422,8 @@ class CounselFlow:
 
         # 구조화가 뽑은 핵심어를 우선한다. 사용자 원문은 조사·군말이 섞인다.
         query = " ".join(state.topics) if state.topics else request.message
+        # `emotion`을 쓸지는 검색 구현이 정한다. 어휘 검색은 가산점으로 쓰고,
+        # 벡터 검색은 받고 버린다 — 실측에서 점수만 흔들었다(`diary_vector`).
         return await self._diary.search(
             user_id=request.user_id,
             query=query,
@@ -498,16 +446,6 @@ class CounselFlow:
         trace: CounselTrace,
         diary_refs: list[DiaryReference] | None = None,
     ) -> CounselReply:
-        """응답을 저장하고 반환한다.
-
-        어시스턴트 턴·트레이스·근거는 1:1이고 여기서 같은 순간에 만들어지므로
-        한 번에 넘겨 같은 트랜잭션으로 남긴다. 저장소가 트레이스를 버려도
-        (인메모리 스텁) 상담은 그대로 동작한다.
-
-        `diary_refs`는 성공 경로에서만 온다. 위기·폴백 답변은 모델이 쓴 문장을
-        버리고 고정 문구로 대체한 것이라 일기를 근거로 삼지 않았다. 쓰지 않은
-        것을 근거로 기록하면 감사 기록이 거짓이 된다.
-        """
         await self._store.append_turn(
             counsel_id=counsel_id,
             user_id=user_id,
@@ -545,7 +483,6 @@ class CounselFlow:
         result_code: ResultCode,
         state: ConversationState | None,
         stage: CounselStage | None,
-        snippets: list[KnowledgeSnippet],
         facts: list[OntologyFact],
         guardrail_hits: list[str],
         stage_ms: dict[str, int],
@@ -560,7 +497,6 @@ class CounselFlow:
             latency_ms=_elapsed_ms(started),
             result_code=result_code,
             stage=stage.value if stage else None,
-            knowledge_count=len(snippets),
             ontology_count=len(facts),
             # 임계값 보정용. 무엇이 들어갔는지가 아니라 몇 건·얼마나 관련 있었는지만
             # 남긴다 — 일기 내용은 트레이스에 넣지 않는다.
@@ -595,14 +531,6 @@ def _decide_stage(
     history: list[CounselTurn],
     state: ConversationState | None,
 ) -> CounselStage:
-    """이번 턴에 어디까지 할지 정한다.
-
-    모델에게 맡기면 매번 "이제 정리할 때"라고 판단해 첫 턴부터 요약과 해결책을
-    내놓는다. 흐름 쪽에서 정해서 내려준다.
-
-    기준은 턴 수가 아니라 **상황과 감정이 잡혔는지**다. 아직 흐릿하면 계속
-    듣고, 그림이 그려지면 정리하고 하나 권한다.
-    """
     if state is not None and state.wants_closure:
         return CounselStage.CLOSING
 
@@ -625,16 +553,6 @@ def _decide_stage(
 
 
 def _is_concrete(state: ConversationState | None) -> bool:
-    """정리해 줄 만큼 이야기가 잡혔는지.
-
-    구조화가 실패해 state가 없으면 계속 듣는 쪽으로 둔다. 모르는 상태에서
-    정리부터 하는 것보다 낫다.
-
-    감정 확신도는 일부러 조건에 넣지 않는다. 허용 목록에 없는 감정 라벨이
-    나오면 `context_agent`가 중립으로 떨어뜨리며 확신도까지 낮추는데, 그걸
-    여기서 다시 보면 "목록에 없는 감정을 말한 사용자"는 영영 정리 단계로
-    못 간다. 감정이 흐릿한지는 `unclear_point`로 이미 걸러진다.
-    """
     if state is None:
         return False
     return state.situation_clear and state.unclear_point is None

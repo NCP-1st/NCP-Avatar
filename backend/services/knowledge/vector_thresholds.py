@@ -21,14 +21,10 @@ class VectorThresholds:
     """벡터 검색이 일기를 프롬프트에 넣을지 정하는 노브 2개."""
 
     # 절대 바닥. 이 미만 후보는 버린다.
-    min_score: float = 0.58
-    # 남은 것 중 최상위가 이 값에 못 미치면 그 턴은 아예 참조하지 않는다.
-    #
-    # 기본값이 min_score 와 같은 건 실측 결과다. 최상위가 통과할 만하면 그
-    # 아래로 조금 떨어지는 것들도 대개 관련이 있고, 반대로 벌려 두면 "국밥"
-    # 질의에 코드 정리 일기가 0.52로 딸려 들어왔다. 근거로 들 만한 선을 하나만
-    # 두는 편이 낫다.
-    strong_score: float = 0.58
+    min_score: float = 0.52
+    strong_score: float = 0.52
+    # `backend/config.py`가 env 로 이 값을 덮어쓴다(DIARY_VEC_*). 기본값이
+    # 양쪽에 있으므로 옮길 때 같이 옮긴다.
 
     def as_diary_thresholds(self) -> DiaryThresholds:
         """`relevance.select`가 이해하는 형태로 바꾼다.

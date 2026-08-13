@@ -1,7 +1,11 @@
 """온톨로지 검색(RAG) 인터페이스.
 
-세 종류를 나눠 둔다. 섞으면 "일반 상담 지식"과 "이 사용자에 대한 사실"이 한
-덩어리로 프롬프트에 들어가, 모델이 일반론을 사용자 개인사인 것처럼 말한다.
+두 종류를 나눠 둔다. 섞으면 "이 사용자가 쓴 일기"와 "이 사용자에 대해 추론한
+사실"이 한 덩어리로 프롬프트에 들어가, 모델이 추론을 기록인 것처럼 말한다.
+
+일반 상담 지식(상담 기법)은 여기 없다. 검색으로 고르던 것을 프롬프트 정적
+블록으로 옮겼다 — 감정 라벨이 닫힌 목록이고 단계도 흐름이 이미 아는 값이라,
+아는 것을 의미 유사도로 다시 맞히는 셈이었다. `prompts.py` 참고.
 """
 
 from __future__ import annotations
@@ -10,20 +14,6 @@ from datetime import date
 from typing import Protocol
 
 from pydantic import BaseModel, Field
-
-
-class KnowledgeSnippet(BaseModel):
-    """상담 지식베이스에서 찾은 조각.
-
-    답변에 그대로 인용하지 않는다. 상담가 에이전트가 말투를 잡는 참고로만
-    쓰고, 사용자에게는 출처를 노출하지 않는다.
-    """
-
-    snippet_id: str
-    title: str
-    content: str = Field(max_length=600)
-    source: str  # 가이드라인 문서명·조항
-    score: float = Field(default=0.0, ge=0, le=1)
 
 
 class OntologyFact(BaseModel):
@@ -71,19 +61,6 @@ class DiaryLookup(BaseModel):
 
     references: list[DiaryReference] = Field(default_factory=list)
     top_candidate_score: float | None = Field(default=None, ge=0, le=1)
-
-
-class CounselKnowledgePort(Protocol):
-    """상담 기법·가이드라인·위기 대응 규칙 검색 (사용자 무관)."""
-
-    async def search(
-        self,
-        *,
-        query: str,
-        emotion: str | None = None,
-        top_k: int = 3,
-    ) -> list[KnowledgeSnippet]:
-        ...
 
 
 class PersonalOntologyPort(Protocol):

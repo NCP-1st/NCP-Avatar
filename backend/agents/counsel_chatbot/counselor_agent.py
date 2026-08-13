@@ -7,11 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from backend.agents.counsel_chatbot import prompts
-from backend.services.knowledge.base import (
-    DiaryReference,
-    KnowledgeSnippet,
-    OntologyFact,
-)
+from backend.services.knowledge.base import DiaryReference, OntologyFact
 from backend.agents.counsel_chatbot.schemas import (
     ConversationState,
     CounselDraft,
@@ -38,7 +34,6 @@ class CounselorAgent:
         message: str,
         stage: CounselStage,
         state: ConversationState | None,
-        snippets: list[KnowledgeSnippet],
         facts: list[OntologyFact],
         history: list[CounselTurn],
         diary_refs: list[DiaryReference] | None = None,
@@ -51,7 +46,6 @@ class CounselorAgent:
         user_prompt = prompts.build_counselor_prompt(
             message,
             state,
-            snippets,
             facts,
             history,
             diary_refs,

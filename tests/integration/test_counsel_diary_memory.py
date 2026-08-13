@@ -35,7 +35,6 @@ from backend.services.knowledge import (
     DiaryLookup,
     DiaryReference,
     DiaryThresholds,
-    InMemoryCounselKnowledge,
     InMemoryDiaryMemory,
     InMemoryPersonalOntology,
     SqlDiaryMemory,
@@ -457,7 +456,6 @@ def _flow(
     return CounselFlow(
         context_agent=context or _StubContextAgent(),  # type: ignore[arg-type]
         counselor_agent=counselor or _StubCounselorAgent(),  # type: ignore[arg-type]
-        knowledge=InMemoryCounselKnowledge(),
         ontology=InMemoryPersonalOntology(),
         store=SQLAlchemyConversationStore(db),
         diary=diary if diary is not None else SqlDiaryMemory(db),

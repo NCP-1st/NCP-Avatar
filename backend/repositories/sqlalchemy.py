@@ -575,7 +575,6 @@ class SQLAlchemyConversationStore:
                     stage=trace.stage,
                     emotion=trace.emotion,
                     latency_ms=trace.latency_ms,
-                    knowledge_count=trace.knowledge_count,
                     ontology_count=trace.ontology_count,
                     event_count=trace.event_count,
                     # diary_refs 가 아니라 trace 에서 가져온다. 참조가 0건인
