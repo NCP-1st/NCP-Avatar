@@ -149,6 +149,9 @@ async def test_search_returns_the_latest_approved_version_only(db: AsyncSession)
     assert [ref.session_id for ref in found] == ["s-recent"]
     assert found[0].summary.startswith("발표 준비하느라")  # 옛 승인본이 아니다
     assert found[0].emotion_tags == ["긴장"]
+    # 벡터 검색과 같은 필드를 채워야 한다. 한쪽만 비면 백엔드를 되돌린 것이
+    # 답변 품질 차이로 나타난다 — 제목이 빠지면 상담사가 날짜만 대게 된다.
+    assert found[0].title == "발표 준비"
 
 
 @pytest.mark.anyio

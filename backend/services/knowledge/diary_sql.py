@@ -154,6 +154,11 @@ class SqlDiaryMemory:
                     reference=DiaryReference(
                         session_id=row.session_id,
                         diary_date=row.diary_date,
+                        # 이미 점수 계산(headline)에 쓰려고 뽑아 둔 값이다.
+                        # 채우지 않으면 sql 백엔드로 되돌렸을 때만 프롬프트에서
+                        # 제목이 사라져, 백엔드를 바꾼 것이 답변 품질 차이로
+                        # 나타난다. 두 구현이 같은 필드를 채워야 한다.
+                        title=row.title,
                         summary=row.summary,
                         emotion_tags=tags,
                         score=value,

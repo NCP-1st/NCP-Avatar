@@ -50,3 +50,25 @@ def test_no_zero_padding() -> None:
 def test_bad_input_raises_for_the_caller_to_handle() -> None:
     with pytest.raises(ValueError):
         format_diary_date("어제")
+
+
+def test_the_caption_says_it_looked_rather_than_cited() -> None:
+    """`evidences`는 검색이 건져 온 목록이지 답변이 인용한 목록이 아니다.
+
+    둘이 갈리는 일이 실제로 있었다 — "또 뭐 맛있게 먹었더라?"에 검색이 국밥
+    일기를 다시 가져왔고, 상담사는 "국밥 외에는 기록이 없다"고 맞게 답했는데
+    화면에는 "국밥 일기를 참고했어요"가 떴다. 없다면서 참고했다는 말이 된다.
+
+    문구가 되돌아가면 같은 모순이 다시 보인다. 소스에서 `st.caption` 줄만
+    떼어 보는 이유는 두 가지다 — Streamlit 페이지는 임포트만 해도 화면을
+    그리고, 주석에 옛 문구가 예시로 남아 있어 전체 검색은 거기에 걸린다.
+    """
+    captions = [
+        line.strip()
+        for line in _SOURCE.splitlines()
+        if line.strip().startswith("st.caption(f\"📖")
+    ]
+
+    assert len(captions) == 1, f"근거 캡션이 하나여야 한다: {captions}"
+    assert "찾아봤어요" in captions[0]
+    assert "참고했어요" not in captions[0]

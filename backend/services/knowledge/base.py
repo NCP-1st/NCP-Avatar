@@ -34,7 +34,12 @@ class DiaryReference(BaseModel):
     """사용자가 직접 쓴 과거 일기 한 건의 요약.
 
     본문(`DiaryVersion.content`)은 담지 않는다. 전문을 프롬프트에 부으면 상담이
-    일기 낭독이 되고, 모델이 원문을 그대로 인용하게 된다.
+    일기 낭독이 되고, 모델이 원문을 그대로 인용하게 된다. 발췌도 넣지 않는다 —
+    잘라 넣어도 원문 문장인 건 같아서 인용이 되기는 마찬가지다.
+
+    담는 것은 사용자가 이미 승인한 요약 층까지다. `title`·`summary`·
+    `emotion_tags` 셋이면 "그때 무슨 일이 있었고 어떤 마음이었나"를 짚을 수
+    있고, 그게 날짜만 대는 것과 구체적으로 이어주는 것의 차이다.
 
     `diary_date`는 H-02 근거 카드와 `counsel_evidences.diary_date`가 쓴다.
     원본 일기가 지워져도 무엇을 근거로 삼았는지는 남아야 한다.
@@ -42,6 +47,8 @@ class DiaryReference(BaseModel):
 
     session_id: str
     diary_date: date
+    # 검색 구현이 채운다. 옛 데이터나 스텁에서 비어 올 수 있어 None을 허용한다.
+    title: str | None = None
     summary: str
     emotion_tags: list[str] = Field(default_factory=list)
     score: float = Field(default=0.0, ge=0, le=1)

@@ -229,8 +229,13 @@ async def test_one_session_appears_once(db: AsyncSession) -> None:
 
 
 @pytest.mark.anyio
-async def test_only_the_summary_is_returned(db: AsyncSession) -> None:
-    """본문을 실으면 상담이 일기 낭독이 된다."""
+async def test_the_summary_layer_is_returned_without_the_body(db: AsyncSession) -> None:
+    """제목·요약·감정까지는 싣고 본문은 싣지 않는다.
+
+    셋 다 사용자가 승인한 요약 층이다. 제목이 있어야 상담사가 날짜만 대는
+    대신 그때 무슨 일이었는지를 짚을 수 있다(`_format_diary_ref` 참고).
+    본문은 여전히 안 된다 — 실으면 상담이 일기 낭독이 된다.
+    """
     await _seed(db, user_id="u-1", session_id="vs-1", version_id="vv-1",
                 embedding=_vector(1, 0), summary="국밥을 먹고 행복했다")
 
@@ -239,10 +244,11 @@ async def test_only_the_summary_is_returned(db: AsyncSession) -> None:
     )
 
     reference = found.references[0]
+    assert reference.title == "제목"
     assert reference.summary == "국밥을 먹고 행복했다"
     assert "본문 전체는" not in reference.model_dump_json()
     assert set(reference.model_dump()) == {
-        "session_id", "diary_date", "summary", "emotion_tags", "score"
+        "session_id", "diary_date", "title", "summary", "emotion_tags", "score"
     }
 
 

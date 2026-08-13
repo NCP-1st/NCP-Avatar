@@ -5,7 +5,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 __all__ = [
     "EMOTION_LABELS",
@@ -44,6 +44,12 @@ class CounselStage(StrEnum):
     EXPLORING = "exploring"  # 더 듣는 중 — 공감이 기본, 질문은 필요할 때만
     CARING = "caring"  # 상황·감정이 잡혔다 — 정리해주고 하나 권한다
     CLOSING = "closing"  # 사용자가 마무리하려 한다
+    # 과거 기록 조회 — 사실만 답하고 되묻지 않는다.
+    #
+    # 상담이 아니라 조회다. "국밥 먹었던 거 기억나?"에 상담 흐름을 태우면
+    # "어떤 계기로 드셨나요?"가 따라붙는데, 기억나지 않아서 물은 사람에게
+    # 기억을 요구하는 말이 된다.
+    RECALL = "recall"
 
 
 ResultCode = Literal[
@@ -171,6 +177,22 @@ class ConversationState(BaseModel):
             "더 물을 게 없으면 null. 억지로 만들지 않는다"
         )
     )
+    # 기본값을 주지 않는다. 주면 JSON Schema의 required에서 빠지고, 모델이
+    # 그냥 생략해 버려 항상 "normal"만 돌아온다 — `EmotionReading.intensity`와
+    # 같은 함정이다. 실제로 default를 달았더니 "국밥 먹었던 거 기억나?"에도
+    # intent가 normal로 왔고 RECALL이 한 번도 걸리지 않았다.
+    #
+    # 대신 아래 `_fill_intent`가 없거나 이상한 값을 normal로 받아낸다. 모델이
+    # 빠뜨렸다고 턴 전체를 실패시킬 값은 아니다.
+    intent: Literal["normal", "recall"] = Field(
+        description=(
+            "이번 메시지의 의도. "
+            "'recall' = 과거의 일이나 일기를 사실로 물어보는 게 주 목적일 때만. "
+            "예: '기억나?', '그날 얘기해줘', '언제 ~했지?', '뭐 했더라?' "
+            "'normal' = 그 외 전부. 지금의 감정·고민을 나누려는 것이면 normal. "
+            "감정 호소가 섞이거나 애매하면 normal. recall은 순수 사실 조회일 때만"
+        ),
+    )
     wants_closure: bool = Field(
         description=(
             "대화를 접으려는 신호가 있으면 true. 세 가지 중 하나면 true다. "
@@ -180,6 +202,20 @@ class ConversationState(BaseModel):
             "새로운 이야기를 꺼내거나 되묻고 있으면 false"
         )
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_intent(cls, data: object) -> object:
+        """intent가 없거나 목록 밖이면 normal로 받는다.
+
+        스키마에서 required로 두어 모델이 반드시 채우게 하되, 빠뜨렸다고 턴
+        전체를 실패시키지는 않는다. 애매하면 normal이라는 것이 이 필드의
+        기본 방침이기도 하다 — 회상으로 잘못 보면 털어놓는 사람에게 기록만
+        읽어주고 대화를 끊는다.
+        """
+        if isinstance(data, dict) and data.get("intent") not in ("normal", "recall"):
+            return {**data, "intent": "normal"}
+        return data
 
     @property
     def entities(self) -> list[str]:

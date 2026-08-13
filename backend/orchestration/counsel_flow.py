@@ -37,6 +37,48 @@ _MAX_GUARDRAIL_RETRIES = 1
 _HISTORY_LIMIT = 20  # 저장소에서 읽어올 최근 대화 수
 _ONTOLOGY_MAX = 5
 
+# 사용자가 "내 과거를 꺼내 달라"고 하는 말투.
+#
+# 두 갈래로 나눈다. 회상 **요청**은 그 자체로 신호지만("알려줘"), 과거 표지는
+# 지금 이야기를 꺼내는 말일 수도 있어서("지난주에 발표를 했는데 아직 긴장돼요")
+# 의문사가 같이 있을 때만 요청으로 본다. 앞의 것은 답을 달라는 말이고 뒤의
+# 것은 들어달라는 말이라, 섞으면 털어놓는 사람에게 기록을 들이밀게 된다.
+#
+# 구조화 LLM에 맡기지 않고 문자열로 판정한다. 감정 라벨을 검색 질의에 넣었다가
+# 같은 문장이 실행마다 다른 점수를 받은 적이 있다(`diary_vector.search` 주석).
+# 이 판정은 게이트라 흔들리면 같은 질문에 답했다 말았다 한다.
+_RECALL_REQUESTS = (
+    "기억나", "기억 나", "기억해", "기억하",
+    "알려줘", "알려주", "알려줄",
+    "찾아줘", "찾아주", "찾아줄",
+    "얘기해줘", "이야기해줘", "말해줘",
+    "더라",
+)
+_PAST_MARKERS = (
+    "예전", "옛날", "저번", "지난번", "지난주", "지난달", "과거", "그때", "전에",
+    "했던", "먹었던", "갔던", "봤던", "놀았", "했었", "였던",
+)
+_INTERROGATIVES = ("뭐", "무엇", "뭘", "어디", "언제", "누구", "어떤", "무슨")
+
+
+def _asks_about_past(message: str) -> bool:
+    """사용자가 자기 과거를 물어보고 있는가.
+
+    맞으면 opening 단계에서도 일기를 찾는다. 원래 opening을 막아 둔 이유는
+    "듣기도 전에 아는 척한다"였는데, 사용자가 먼저 물었다면 그 이유가 없다.
+
+    막아 두면 첫 마디에 물은 사람에게 거짓 부인이 나간다 — 국밥 일기가 2건
+    있는데도 "기록이 확인되지 않아요"라고 답한 것이 실측이다.
+
+    넓게 잡는다. 잘못 걸리면 임베딩 한 번 더 부르고 임계값에서 걸러질 뿐이지만,
+    놓치면 있는 기록을 없다고 말하게 된다.
+    """
+    if any(marker in message for marker in _RECALL_REQUESTS):
+        return True
+    return any(marker in message for marker in _PAST_MARKERS) and any(
+        word in message for word in _INTERROGATIVES
+    )
+
 
 class CounselFlow:
     """상담 대화 한 턴을 끝까지 처리한다."""
@@ -413,7 +455,14 @@ class CounselFlow:
             state is None
             or not request.memory_scope.enabled
             or session_crisis
-            or stage is CounselStage.OPENING
+            # opening 을 막아 둔 이유는 "듣기도 전에 아는 척한다"였다. 사용자가
+            # 먼저 물었다면 그 이유가 없어진다 — 아는 척이 문제였지 아는 것이
+            # 문제가 아니었다. 막아 두면 "국밥 먹었던 거 기억나?" 첫 마디에
+            # 일기 2건을 두고도 "기록이 확인되지 않아요"가 나간다(실측).
+            or (
+                stage is CounselStage.OPENING
+                and not _asks_about_past(request.message)
+            )
         ):
             # 게이트에 막힌 턴은 검색 자체를 하지 않았다. 후보 최고점도 None이라
             # 관측에서 "후보가 없었다"와 구분되지 않는다 — 어느 쪽이든 임계값
@@ -531,6 +580,16 @@ def _decide_stage(
     history: list[CounselTurn],
     state: ConversationState | None,
 ) -> CounselStage:
+    # 회상이 먼저다. 과거를 물은 턴은 상담 흐름을 태우지 않는다 — 마무리
+    # 신호보다도 앞이다. "그날 얘기해주고 이만 잘게"처럼 섞여 오면 물어본
+    # 것부터 답해야 한다.
+    #
+    # 위기 세션은 여기까지 오지 않는다. `run`이 상단에서 EXPLORING으로
+    # 고정하고 `_decide_stage`를 부르지 않는다 — 회상이 위기를 가로채지
+    # 못하게 하는 것이 그 구조의 목적이라 건드리지 않는다.
+    if state is not None and state.intent == "recall":
+        return CounselStage.RECALL
+
     if state is not None and state.wants_closure:
         return CounselStage.CLOSING
 
@@ -565,6 +624,8 @@ _STAGE_ALLOWED: dict[CounselStage, frozenset[str]] = {
     CounselStage.CARING: frozenset({"question", "summary", "suggestion"}),
     # 마무리는 summary·suggestion 중 하나만 살아남는다 (`_enforce_closing`).
     CounselStage.CLOSING: frozenset({"summary", "suggestion"}),
+    # 회상은 reply 하나만 나간다. 물어본 것에 답하고 끝낸다.
+    CounselStage.RECALL: frozenset(),
 }
 
 # 그 단계라면 반드시 있어야 하는 필드.
@@ -576,6 +637,8 @@ _STAGE_REQUIRED: dict[CounselStage, frozenset[str]] = {
     CounselStage.EXPLORING: frozenset(),
     CounselStage.CARING: frozenset({"summary", "suggestion"}),
     CounselStage.CLOSING: frozenset(),
+    # 회상에는 요구할 것이 없다. 특히 question 을 요구하면 안 된다.
+    CounselStage.RECALL: frozenset(),
 }
 
 _OPTIONAL_FIELDS = ("question", "summary", "suggestion")
@@ -614,6 +677,27 @@ def _enforce_closing(draft: CounselDraft) -> dict[str, object]:
     }
 
 
+def _strip_to_reply(draft: CounselDraft, trace_id: str) -> CounselDraft:
+    """reply만 남기고 전부 지운다 (회상 단계).
+
+    `_STAGE_ALLOWED[RECALL]`이 비어 있어 일반 경로로도 대부분 지워지지만,
+    거기 로직은 `suggestion_kind`를 "종류를 안 밝히면 행동으로 본다"며 되살릴
+    수 있다. 회상에서는 그런 여지를 두지 않는다.
+    """
+    dropped = {
+        field: None
+        for field in ("question", "summary", "suggestion", "suggestion_kind", "closing_kind")
+        if getattr(draft, field) is not None
+    }
+    if not dropped:
+        return draft
+
+    logger.info(
+        "counsel recall stripped fields trace=%s fields=%s", trace_id, list(dropped)
+    )
+    return draft.model_copy(update=dropped)
+
+
 def _enforce_stage(
     draft: CounselDraft,
     stage: CounselStage,
@@ -624,6 +708,12 @@ def _enforce_stage(
     프롬프트에 "반드시 null"이라고 써도 모델은 채워 넣는다. 첫 턴부터 정리와
     해결책이 딸려 나오는 걸 막으려면 코드에서 잘라내야 한다.
     """
+    if stage is CounselStage.RECALL:
+        # 회상은 reply 하나만 내보낸다. 아래 일반 경로에 맡기지 않고 따로
+        # 자르는 건 확실히 하기 위해서다 — 프롬프트로 막고 여기서 한 번 더
+        # 없앤다. 모델이 지시를 어겨도 질문이 절대 나가지 않아야 한다.
+        return _strip_to_reply(draft, trace_id)
+
     allowed = _STAGE_ALLOWED[stage]
     dropped = {
         field: None
@@ -672,6 +762,12 @@ def _stage_gaps(
     """
     if stage is CounselStage.CLOSING:
         return _closing_gaps(draft)
+
+    # 회상은 아무것도 요구하지 않는다. `unclear_point`가 있어도 질문을
+    # 요구하지 않는다 — 여기서 요구하면 재생성이 걸려 기어이 질문이 붙는다.
+    # 구조화는 회상 메시지에도 "아직 모르는 것"을 곧잘 만들어 낸다.
+    if stage is CounselStage.RECALL:
+        return []
 
     required = set(_STAGE_REQUIRED[stage])
     if (

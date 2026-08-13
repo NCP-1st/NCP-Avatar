@@ -122,6 +122,7 @@ class VectorDiaryMemory:
             select(
                 DiarySession.session_id,
                 DiarySession.diary_date,
+                DiaryVersion.title,
                 DiaryVersion.summary,
                 DiaryVersion.emotion_tags,
                 distance,
@@ -146,7 +147,9 @@ class VectorDiaryMemory:
                 reference=DiaryReference(
                     session_id=row["session_id"],
                     diary_date=row["diary_date"],
-                    # 요약만 싣는다. 본문을 넣으면 상담이 일기 낭독이 된다.
+                    # 제목·요약·감정까지만 싣는다. 본문을 넣으면 상담이 일기
+                    # 낭독이 된다. 셋 다 사용자가 승인한 요약 층이다.
+                    title=row["title"],
                     summary=row["summary"],
                     emotion_tags=_normalize_emotion_tags(row["emotion_tags"]),
                     score=_to_score(row["distance"]),
